@@ -15,14 +15,14 @@ import {
 } from '@expo-google-fonts/inter';
 import { ThemeProvider } from 'expo-router/react-navigation';
 import { PortalHost } from '@rn-primitives/portal';
-import { Link, Stack } from 'expo-router';
-import { Settings } from 'lucide-react-native';
+import { Link, Stack, usePathname } from 'expo-router';
+import { Settings, SlidersHorizontal } from 'lucide-react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useConvexAuth, useQuery } from 'convex/react';
 import { useColorScheme } from 'nativewind';
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { Platform, View } from 'react-native';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -91,13 +91,7 @@ function RootNavigator() {
             headerTitleAlign: 'center',
             headerShadowVisible: false,
             headerTitleStyle: { fontFamily: TITLE_FONT, fontSize: 18 },
-            headerRight: () => (
-              <Link href="/settings" asChild>
-                <Button variant="ghost" size="icon" accessibilityLabel="Settings">
-                  <Icon as={Settings} size={20} className="text-muted-foreground" />
-                </Button>
-              </Link>
-            ),
+            headerRight: () => <HeaderActions />,
           }}
         />
         <Stack.Screen
@@ -110,9 +104,31 @@ function RootNavigator() {
             headerTitleStyle: { fontFamily: 'Inter_600SemiBold' },
           }}
         />
+        <Stack.Screen name="edit-slop" options={{ presentation: 'modal' }} />
         <Stack.Screen name="x-chat" />
       </Stack.Protected>
       <Stack.Screen name="feed-preview" />
     </Stack>
+  );
+}
+
+// On the Feed tab, editing "What's slop for you?" sits next to Settings.
+function HeaderActions() {
+  const onFeed = usePathname() === '/';
+  return (
+    <View className="flex-row">
+      {onFeed && (
+        <Link href="/edit-slop" asChild>
+          <Button variant="ghost" size="icon" accessibilityLabel="Edit what's slop for you">
+            <Icon as={SlidersHorizontal} size={20} className="text-muted-foreground" />
+          </Button>
+        </Link>
+      )}
+      <Link href="/settings" asChild>
+        <Button variant="ghost" size="icon" accessibilityLabel="Settings">
+          <Icon as={Settings} size={20} className="text-muted-foreground" />
+        </Button>
+      </Link>
+    </View>
   );
 }

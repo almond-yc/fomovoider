@@ -125,6 +125,22 @@ export async function recordSyncRequest(ctx: MutationCtx, accountId: Id<"connect
   return true;
 }
 
+// For replies: the caller's X account, and the post only if it is theirs.
+export const sendTarget = internalQuery({
+  args: { userId: v.id("users"), postId: v.string() },
+  handler: async (ctx, { userId, postId }) => {
+    const account = await ctx.db
+      .query("connectedAccounts")
+      .withIndex("by_userId_and_platform", (q) => q.eq("userId", userId).eq("platform", "x"))
+      .unique();
+    const post = await ctx.db
+      .query("posts")
+      .withIndex("by_userId_and_id", (q) => q.eq("userId", userId).eq("id", postId))
+      .unique();
+    return { account, post };
+  },
+});
+
 export const usageUsed = internalQuery({
   args: { key: v.string() },
   returns: v.number(),

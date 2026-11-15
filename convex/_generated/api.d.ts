@@ -27,6 +27,7 @@ import type * as retention from "../retention.js";
 import type * as x_auth from "../x/auth.js";
 import type * as x_chat from "../x/chat.js";
 import type * as x_crons from "../x/crons.js";
+import type * as x_send from "../x/send.js";
 import type * as x_state from "../x/state.js";
 import type * as x_sync from "../x/sync.js";
 
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   "x/auth": typeof x_auth;
   "x/chat": typeof x_chat;
   "x/crons": typeof x_crons;
+  "x/send": typeof x_send;
   "x/state": typeof x_state;
   "x/sync": typeof x_sync;
 }>;

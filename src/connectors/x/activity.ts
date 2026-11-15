@@ -181,6 +181,18 @@ function appCall(opts: AppAuth) {
   };
 }
 
+export interface ActivitySubscription {
+  subscription_id: string;
+  event_type: string;
+  webhook_id?: string;
+}
+
+// One X user's subscriptions, with the app token.
+export async function listSubscriptions(opts: AppAuth & { userId: string }): Promise<ActivitySubscription[]> {
+  const res = await appCall(opts)<{ data?: ActivitySubscription[] }>("GET", `${paths.activitySubscriptions}?user_id=${encodeURIComponent(opts.userId)}`);
+  return res.data ?? [];
+}
+
 // Deletes subscriptions with the app token; ones already gone are skipped.
 export async function deleteSubscriptions(opts: AppAuth & { ids: string[] }): Promise<void> {
   const call = appCall(opts);

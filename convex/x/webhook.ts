@@ -11,6 +11,7 @@ import {
   activityUserId,
   chatActivity,
   deleteSubscriptions,
+  listSubscriptions,
   dmActivity,
   mentionActivity,
   parseActivity,
@@ -184,7 +185,10 @@ export const storeChat = internalMutation({
   },
 });
 
-// Creates or refreshes an account's subscriptions on the registered webhook.
+// Makes sure the account's X user has one subscription per event type on the
+// registered webhook: X allows one per event type and user, so one pointing
+// at another webhook is replaced. Listing and deleting use the app token,
+// creating uses the user's token.
 export const subscribe = internalAction({
   args: { accountId: v.id("connectedAccounts") },
   returns: v.null(),
@@ -192,10 +196,26 @@ export const subscribe = internalAction({
     const webhook = await ctx.runQuery(internal.x.webhook.config, {});
     const account = await ctx.runQuery(internal.accounts.get, { accountId });
     if (!webhook || !account?.me || account.status !== "active") return null;
-    const subscriptionIds = await withX(ctx, account, (x, session) =>
-      x.subscribeActivity(session, { webhookId: webhook.webhookId, eventTypes: WEBHOOK_EVENTS, tag: TAG }),
-    );
-    await ctx.runMutation(internal.x.webhook.saveSubscriptions, { accountId, xUserId: account.me.id.slice(2), subscriptionIds });
+    const xUserId = account.me.id.slice(2);
+    const existing = await listSubscriptions({ bearerToken: bearerToken(), userId: xUserId });
+    const stale = existing.filter((s) => s.webhook_id !== webhook.webhookId && (WEBHOOK_EVENTS as readonly string[]).includes(s.event_type));
+    if (stale.length) await deleteSubscriptions({ bearerToken: bearerToken(), ids: stale.map((s) => s.subscription_id) });
+    const subscriptionIds: string[] = [];
+    const missing: string[] = [];
+    for (const eventType of WEBHOOK_EVENTS) {
+      const found = existing.find((s) => s.event_type === eventType && s.webhook_id === webhook.webhookId);
+      if (found) subscriptionIds.push(found.subscription_id);
+      else missing.push(eventType);
+    }
+    if (missing.length) {
+      const created = await withX(ctx, account, async (x, session) => {
+        const ids: string[] = [];
+        for (const eventType of missing) ids.push(await x.createActivitySubscription(session, { webhookId: webhook.webhookId, eventType, tag: TAG }));
+        return ids;
+      });
+      subscriptionIds.push(...created);
+    }
+    await ctx.runMutation(internal.x.webhook.saveSubscriptions, { accountId, xUserId, subscriptionIds });
     return null;
   },
 });

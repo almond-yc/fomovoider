@@ -12,7 +12,7 @@ import { EmptyState } from '@/components/empty-state';
 import { PlatformBadge } from '@/components/platform-badge';
 import { Text } from '@/components/ui/text';
 import { api } from '@/convex/_generated/api';
-import { conversationTitle, sendErrorText, unavailableText, withDaySeparators, type ThreadItem } from '@/src/chat/format';
+import { conversationTitle, sendErrorText, unavailableText, unconfirmedPending, withDaySeparators, type ThreadItem } from '@/src/chat/format';
 import type { ChatConversation, ChatMessage } from '@/src/chat/types';
 import { useAction, useConvexAuth, usePaginatedQuery, useQuery } from 'convex/react';
 import { Stack, useLocalSearchParams } from 'expo-router';
@@ -53,18 +53,24 @@ export default function ConversationScreen() {
     async (key: string, text: string) => {
       setPending((all) => all.map((p) => (p.key === key ? { ...p, status: 'sending', error: undefined } : p)));
       let error: string | undefined;
+      let sentId: string | undefined;
       try {
         if (sourceThread) {
           await sourceThread.send(text);
         } else {
           const result = await sendAction({ conversationId: id, text });
-          if (!result.ok) error = sendErrorText(result.error, conversation?.platform ?? '');
+          if (result.ok) sentId = result.message.id;
+          else error = sendErrorText(result.error, conversation?.platform ?? '');
         }
       } catch (err) {
         error = sourceThread && err instanceof Error ? err.message : "Couldn't send. Check your connection.";
       }
       setPending((all) =>
-        error ? all.map((p) => (p.key === key ? { ...p, status: 'failed', error } : p)) : all.filter((p) => p.key !== key)
+        error
+          ? all.map((p) => (p.key === key ? { ...p, status: 'failed', error } : p))
+          : sentId
+            ? all.map((p) => (p.key === key ? { ...p, sentId } : p))
+            : all.filter((p) => p.key !== key)
       );
     },
     [sourceThread, sendAction, id, conversation?.platform]
@@ -81,11 +87,15 @@ export default function ConversationScreen() {
     : stored.status === 'LoadingFirstPage'
       ? null
       : (stored.results as ChatMessage[]);
+  const visiblePending = useMemo(() => unconfirmedPending(pending, messages), [pending, messages]);
+  useEffect(() => {
+    if (visiblePending.length < pending.length) setPending(visiblePending);
+  }, [visiblePending, pending.length]);
   const rows = useMemo<Row[]>(() => {
     const now = Date.now();
-    const newestPending = [...pending].reverse().map((p) => ({ kind: 'pending' as const, key: p.key, pending: p }));
+    const newestPending = [...visiblePending].reverse().map((p) => ({ kind: 'pending' as const, key: p.key, pending: p }));
     return [...newestPending, ...withDaySeparators(messages ?? [], now)];
-  }, [messages, pending]);
+  }, [messages, visiblePending]);
 
   if (conversation === null) {
     return (

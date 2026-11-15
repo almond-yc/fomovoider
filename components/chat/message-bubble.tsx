@@ -12,6 +12,7 @@ export type PendingMessage = {
   text: string;
   status: 'sending' | 'failed';
   error?: string;
+  sentId?: string;
 };
 
 function Bubble({ mine, faded, children }: { mine: boolean; faded?: boolean; children: React.ReactNode }) {
@@ -29,12 +30,15 @@ function Bubble({ mine, faded, children }: { mine: boolean; faded?: boolean; chi
 
 export function MessageBubble({ message, showSender }: { message: ChatMessage; showSender?: boolean }) {
   const mine = message.isMine;
+  const delivery = message.delivery?.status;
   return (
     <View className={cn('gap-1 px-4', mine ? 'items-end' : 'items-start')}>
       {showSender && !mine ? (
         <Text className="px-1 text-xs text-muted-foreground">{message.sender.displayName || `@${message.sender.handle}`}</Text>
       ) : null}
-      <Bubble mine={mine}>
+      <View className={cn('max-w-[80%] flex-row items-center gap-2', mine ? 'self-end' : 'self-start')}>
+        {delivery === 'failed' ? <Icon as={CircleAlert} size={16} className="text-destructive" /> : null}
+        <Bubble mine={mine} faded={delivery === 'pending'}>
         {message.media.map((m) => (
           <View key={m.url} className="w-60">
             <ContentMedia media={m} />
@@ -43,8 +47,17 @@ export function MessageBubble({ message, showSender }: { message: ChatMessage; s
         {message.text ? (
           <Text className={cn('text-[15px] leading-[21px]', mine && 'text-primary-foreground')}>{message.text}</Text>
         ) : null}
-      </Bubble>
-      <Text className="px-1 text-[11px] text-muted-foreground">{messageTime(message.sentAt)}</Text>
+        </Bubble>
+      </View>
+      {delivery === 'pending' ? (
+        <Text className="px-1 text-[11px] text-muted-foreground">Sending…</Text>
+      ) : delivery === 'failed' ? (
+        <Text className="max-w-[85%] px-1 text-right text-[11px] text-destructive">
+          {message.delivery?.error ? `Not delivered: ${message.delivery.error}` : 'Not delivered'}
+        </Text>
+      ) : (
+        <Text className="px-1 text-[11px] text-muted-foreground">{messageTime(message.sentAt)}</Text>
+      )}
     </View>
   );
 }

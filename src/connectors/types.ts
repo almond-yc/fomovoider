@@ -68,6 +68,9 @@ export interface Message {
   sentAt: ISODate;
   text: string;
   media: Media[];
+  // Only for sends a platform confirms later (Instagram: queued, then the
+  // phone reports the outcome). Unset = delivered.
+  delivery?: { status: "pending" | "sent" | "failed"; error?: string };
   raw?: unknown;
 }
 

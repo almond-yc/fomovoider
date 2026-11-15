@@ -285,6 +285,41 @@ describe("messages.markRead", () => {
   });
 });
 
+test("delivery status passes through send and list, and a later flip shows in list", async () => {
+  const { t, signUp } = await setup();
+  const alice = await signUp("alice-token", ["instagram"]);
+  const id = "instagram:thread-1";
+  await alice.addConversation(id);
+  const sent = {
+    id: "instagram:m1",
+    conversationId: id,
+    sender: person("instagram", "me"),
+    isMine: true,
+    sentAt: Date.parse("2026-11-15T12:00:00Z"),
+    text: "on my way",
+    media: [],
+    delivery: { status: "pending" as const },
+  };
+  CHAT_PLATFORMS.instagram = {
+    capabilities: { feed: false, chats: true, sendMessage: true, sendMedia: false, reply: false },
+    send: async () => sent,
+  };
+  await t.run((ctx) => ctx.db.insert("messages", { userId: alice.userId, ...sent }));
+  try {
+    const result = await alice.as.action(api.messages.send, { conversationId: id, text: "on my way" });
+    expect(result).toMatchObject({ ok: true, message: { id: "instagram:m1", delivery: { status: "pending" } } });
+  } finally {
+    delete CHAT_PLATFORMS.instagram;
+  }
+  const page = () => alice.as.query(api.messages.list, { conversationId: id, paginationOpts: { numItems: 10, cursor: null } });
+  expect((await page()).page.map((m) => m.delivery)).toEqual([{ status: "pending" }]);
+  await t.run(async (ctx) => {
+    const row = (await ctx.db.query("messages").collect())[0]!;
+    await ctx.db.patch(row._id, { delivery: { status: "failed", error: "Instagram didn't accept it" } });
+  });
+  expect((await page()).page.map((m) => m.delivery)).toEqual([{ status: "failed", error: "Instagram didn't accept it" }]);
+});
+
 test("registered capabilities match the X connector's own", () => {
   const x = new XConnector({ config: { clientId: "id", dailyPostReadBudget: 1, dailyDmEventReadBudget: 1, dailyChatEventReadBudget: 1, dailyWriteBudget: 1 } });
   expect(CHAT_PLATFORMS.x!.capabilities).toEqual(x.capabilities);

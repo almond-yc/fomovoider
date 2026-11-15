@@ -135,6 +135,13 @@ const messageFields = {
   sentAt: v.number(),
   text: v.string(),
   media: v.array(vMedia),
+  // Unset = delivered. Platforms that confirm sends later set pending, then sent or failed.
+  delivery: v.optional(
+    v.object({
+      status: v.union(v.literal("pending"), v.literal("sent"), v.literal("failed")),
+      error: v.optional(v.string()),
+    }),
+  ),
 };
 
 export const vMessageFields = messageFields;

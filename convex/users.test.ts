@@ -31,7 +31,7 @@ describe("users.viewer", () => {
       session: { platform: "x", kind: "oauth", accessToken: "secret" },
     });
     await asBob.mutation(api.accounts.connect, {
-      session: { platform: "instagram", kind: "device", deviceId: "d1" },
+      session: { platform: "instagram", kind: "cookies", cookies: [] },
     });
 
     const pending = await asAda.query(api.users.viewer, {});

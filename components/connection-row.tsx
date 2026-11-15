@@ -55,11 +55,11 @@ export function ConnectionRow({
       setAttempt({ state: 'connecting', device: login.kind === 'device' });
       if (login.kind === 'server') {
         await login.login();
+      } else if (login.kind === 'device') {
+        await login.pair();
       } else {
-        let session;
-        if (login.kind === 'oauth') session = await login.login();
-        else if (login.kind === 'device') session = await login.pair();
-        else throw new Error('Web sign-in is not supported yet.');
+        if (login.kind !== 'oauth') throw new Error('Web sign-in is not supported yet.');
+        const session = await login.login();
         await convex.mutation(api.accounts.connect, { session });
         const started = connector.sync ? await convex.mutation(connector.sync, {}) : true;
         if (started === false) setNote("The first sync couldn't start yet. Tap Sync now in a few minutes.");

@@ -10,12 +10,15 @@ export interface PairingCode {
   expiresAt: number;
 }
 
-// A login that finishes on the server, which stores, verifies and syncs the
-// account itself; login() resolves once that is done.
-export interface ServerLogin {
-  kind: 'server';
-  login(): Promise<unknown>;
-}
+// How the app connects a platform. The contract's oauth and webview logins
+// return a Session the app stores with accounts.connect. A "server" login
+// finishes on the server, which stores, verifies and syncs the account itself.
+// A "device" pairing resolves once the connector has paired the device and
+// created the account; the app never stores device sessions.
+export type ClientLogin =
+  | Exclude<Login, { kind: 'device' }>
+  | { kind: 'server'; login(): Promise<unknown> }
+  | { kind: 'device'; pair(): Promise<void> };
 
 export interface LoginContext {
   convex: ConvexReactClient;
@@ -30,9 +33,7 @@ export interface ClientConnector {
   name: string;
   description: string;
   // Unset when this build can't connect the platform; the row is disabled.
-  // A contract Login's Session is stored by the app with accounts.connect,
-  // which then starts the first sync.
-  login?: (ctx: LoginContext) => Login | ServerLogin;
+  login?: (ctx: LoginContext) => ClientLogin;
   // Public mutation (no args) that syncs the signed-in user's account now.
   sync?: FunctionReference<'mutation', 'public', Record<string, never>, unknown>;
   // Public mutation (no args) the platform runs before accounts.disconnect.
@@ -41,13 +42,14 @@ export interface ClientConnector {
 
 const xClientId = process.env.EXPO_PUBLIC_X_CLIENT_ID;
 
-// convex/instagram/devices.ts (FOMO-17). Referenced by name so the build
+// convex/instagram/devices.ts (FOMO-17). Pairing creates the connected
+// account (internal.accounts.connectDevice), so the app only asks for a code
+// and watches the status. Referenced by name so the build
 // doesn't depend on it; until it is deployed the calls fail with a missing
 // function error, which the row shows as "not available yet".
 interface InstagramDeviceStatus {
   name: string;
   paired: boolean;
-  deviceId?: string;
   pausedUntil?: number;
   pauseReason?: string;
 }
@@ -94,8 +96,7 @@ export const connectors: ClientConnector[] = [
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         });
         onPairingCode(pairing);
-        const deviceId = await waitForPairedDevice(convex, pairing.expiresAt, signal);
-        return { platform: 'instagram', kind: 'device', deviceId };
+        await waitForPairedDevice(convex, pairing.expiresAt, signal);
       },
     }),
     sync: instagramDevices.runNow,
@@ -104,7 +105,7 @@ export const connectors: ClientConnector[] = [
 ];
 
 function waitForPairedDevice(convex: ConvexReactClient, expiresAt: number, signal: AbortSignal) {
-  return new Promise<string>((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const watch = convex.watchQuery(instagramDevices.status, {});
     const finish = (settle: () => void) => {
       unsubscribe();
@@ -125,11 +126,7 @@ function waitForPairedDevice(convex: ConvexReactClient, expiresAt: number, signa
         finish(() => reject(err));
         return;
       }
-      if (!status?.paired) return;
-      const { deviceId } = status;
-      finish(() =>
-        deviceId ? resolve(deviceId) : reject(new Error('The paired device has no id yet.'))
-      );
+      if (status?.paired) finish(resolve);
     });
     signal.addEventListener('abort', onAbort);
   });

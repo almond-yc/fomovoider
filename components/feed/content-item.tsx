@@ -1,14 +1,24 @@
 import { PlatformBadge, platformName } from '@/components/platform-badge';
 // avatar hidden for now, per Alex
 // import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { openBrowserAsync } from 'expo-web-browser';
+import { Bookmark } from 'lucide-react-native';
 import { Pressable, View } from 'react-native';
 
 import { ContentMedia } from './content-media';
 import type { FeedPost } from './types';
 
-export function ContentItem({ post, title }: { post: FeedPost; title?: string }) {
+export function ContentItem({
+  post,
+  saved = false,
+  onOpen,
+}: {
+  post: FeedPost;
+  saved?: boolean;
+  onOpen?: () => void;
+}) {
   const { author } = post;
 
   return (
@@ -26,19 +36,26 @@ export function ContentItem({ post, title }: { post: FeedPost; title?: string })
           <Text className="font-sans-semibold text-sm">{author.displayName}</Text>
           <Text className="text-sm text-muted-foreground"> @{author.handle}</Text>
         </Text>
-        {title ? <Text className="font-title text-lg leading-6">{title}</Text> : null}
+        {post.title ? <Text className="font-title text-lg leading-6">{post.title}</Text> : null}
         {post.text ? <Text className="text-[15px] leading-[22px]">{post.text}</Text> : null}
         {post.media.map((m) => (
           <ContentMedia key={m.url} media={m} />
         ))}
-        <Pressable
-          onPress={() => openBrowserAsync(post.permalink)}
-          hitSlop={15}
-          accessibilityRole="link"
-          accessibilityLabel={`View original on ${platformName(post.platform)}`}
-          className="self-start">
-          <PlatformBadge platform={post.platform} />
-        </Pressable>
+        <View className="flex-row items-center gap-3">
+          <Pressable
+            onPress={() => {
+              onOpen?.();
+              void openBrowserAsync(post.permalink);
+            }}
+            hitSlop={15}
+            accessibilityRole="link"
+            accessibilityLabel={`View original on ${platformName(post.platform)}`}>
+            <PlatformBadge platform={post.platform} />
+          </Pressable>
+          {saved ? (
+            <Icon as={Bookmark} size={14} className="text-muted-foreground" accessibilityLabel="Saved" />
+          ) : null}
+        </View>
       </View>
     </View>
   );

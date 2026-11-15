@@ -36,6 +36,22 @@ export const markSeen = mutation({
     await update(ctx, postId, (s) => ({ seenAt: s.seenAt ?? Date.now() })),
 });
 
+// markSeen for the posts that came on screen since the last call, so the app
+// sends one mutation per batch instead of one per post.
+export const MAX_SEEN_BATCH = 100;
+
+export const markSeenMany = mutation({
+  args: { postIds: v.array(v.id("posts")) },
+  returns: v.null(),
+  handler: async (ctx, { postIds }) => {
+    if (postIds.length > MAX_SEEN_BATCH) throw new Error(`At most ${MAX_SEEN_BATCH} posts per call`);
+    for (const postId of new Set(postIds)) {
+      await update(ctx, postId, (s) => ({ seenAt: s.seenAt ?? Date.now() }));
+    }
+    return null;
+  },
+});
+
 // The last time the user opened the post (its permalink).
 export const markOpened = mutation({
   args: { postId: v.id("posts") },

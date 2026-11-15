@@ -25,7 +25,7 @@ export default function FeedPreviewScreen() {
         <FlatList
           data={samplePosts}
           keyExtractor={(post) => post.id}
-          renderItem={({ item }) => <ContentItem post={item} title={item.title} />}
+          renderItem={({ item }) => <ContentItem post={item} />}
           ItemSeparatorComponent={DashedDivider}
         />
       )}

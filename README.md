@@ -31,14 +31,13 @@ Fomovoider covers two platforms: X and Instagram.
 - **Connect**: until one platform is connected, the app shows a Connect screen instead of the tabs, with a row for X (X's own sign-in) and one for Instagram (pairing a device with a one-time code).
 - **Settings** (gear in the native header): each platform's handle, status and last sync, Sync now, Disconnect (which deletes that platform's data from Fomovoider), and Sign out.
 - **Chats tab**: the inbox and a conversation screen, with X conversations (Instagram DMs aren't synced yet), sending X DMs and replies, and pending or failed delivery shown on each message. Encrypted X Chat conversations are decrypted on the phone after the user unlocks them; Convex only stores ciphertext.
-- **Feed tab**: still an empty state. The feed component (post cards with media, skeletons, and a `PlatformBadge` that links to the original post) renders sample posts at `/feed-preview`.
+- **Feed tab**: the signed-in user's finite feed from Convex (`feed.page`), newest first across platforms, with skeletons while it loads. It ends at "You're all caught up", which also marks where the next session starts. Pull to refresh re-queries and asks each connector with a sync mutation to sync. Posts are marked seen as they scroll into view and opened when you tap the platform icon; long-press a post to save or hide it. Stories and tagged places show quietly on the card. A connected account in trouble (signed out, X credits used up) shows as a one-line notice above the feed. `/feed-preview` renders the same post component with sample data for design work.
 - **Backend** on Convex: Convex Auth with email and password, connected accounts, the shared `posts`, `postStates`, `conversations` and `messages` tables, `feed.page` with the finite cutoff, media copies in Convex file storage, a daily retention cron, and the registration points connectors use for their own tables and crons. See [convex/README.md](convex/README.md).
 - **X connector** (`src/connectors/x/`, `convex/x/`): official X API v2 with OAuth 2.0 PKCE, the code exchanged on the server, a 6-hourly sync of the home feed, mentions and DMs, and DM sends. The shared dev deployment holds real X posts and DMs from a team account.
 - **Instagram connector** (`convex/instagram/`, `hosts/instagram/`): read-only. A host agent on a Mac drives the Instagram app on the user's paired iPhone through WebDriverAgent and sends posts and stories to Convex on runs that Convex schedules.
 
 **In open pull requests**
 
-- #25: the Feed tab on real data, with the finite feed, post state, and account notices.
 - #27: drop the `steps` login kind from the connector contract.
 - #28: let connectors pass `Media.storageId` for post media.
 

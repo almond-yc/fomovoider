@@ -50,9 +50,26 @@ describe("x/auth:connect", () => {
     expect(Object.fromEntries(tokenRequests[0]!.body)).toMatchObject({ grant_type: "authorization_code", code: "auth-code", code_verifier: "verifier", redirect_uri: "fomovoider://oauth/x" });
 
     const account = await t.run((ctx) => ctx.db.get(result.accountId));
-    expect(account).toMatchObject({ platform: "x", status: "active", me: { id: "x:2244994945" }, session: { kind: "oauth", accessToken: fixtures.token.access_token } });
+    expect(account).toMatchObject({ platform: "x", status: "pending", session: { kind: "oauth", accessToken: fixtures.token.access_token } });
     const scheduled = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
     expect(scheduled.map((s) => [s.name, s.args[0]])).toEqual([["x/sync:syncAccount", { accountId: result.accountId }]]);
+  });
+
+  test("stores the session X rotated while confirming the identity", async () => {
+    const fixtureFetch = createFixtureFetch();
+    let meCalls = 0;
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/2/users/me") && meCalls++ === 0) return new Response(JSON.stringify(fixtures["error-unauthorized"]), { status: 401 });
+      if (url.endsWith("/2/oauth2/token") && new URLSearchParams(String(init?.body)).get("grant_type") === "refresh_token") {
+        return new Response(JSON.stringify(fixtures["token-refreshed"]), { status: 200 });
+      }
+      return fixtureFetch(input, init);
+    }) as typeof fetch);
+    const { t, as } = await setup();
+    const { accountId } = await as.action(api.x.auth.connect, code);
+    const account = await t.run((ctx) => ctx.db.get(accountId));
+    expect(account?.session).toMatchObject({ accessToken: "refreshed-access-token", refreshToken: "rotated-refresh-token" });
   });
 
   test("a public client sends its client id instead of a secret", async () => {

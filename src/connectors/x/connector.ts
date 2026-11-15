@@ -289,16 +289,24 @@ export class XConnector implements Connector {
   // user's token (dm.read for dm.* and chat.*, tweet.read for posts);
   // listing and deleting go through the app token (activity.ts), since the
   // user-token list also wants like.read, which Fomovoider doesn't ask for.
-  async createActivitySubscription(session: Session, opts: { webhookId: string; eventType: string; tag: string }): Promise<string> {
+  // Returns undefined when X answers DuplicateSubscription: the user already
+  // has one for this event type (X's list doesn't always show it).
+  async createActivitySubscription(session: Session, opts: { webhookId: string; eventType: string; tag: string }): Promise<string | undefined> {
     const ctx = this.context(session);
     const me = await this.me(ctx);
-    const res = await this.http.request<{ data: { subscription: { subscription_id: string } } }>(ctx, {
-      method: "POST",
-      path: paths.activitySubscriptions,
-      endpoint: "create_activity_subscription",
-      body: { event_type: opts.eventType, filter: { user_id: me.id }, webhook_id: opts.webhookId, tag: opts.tag },
-    });
-    return res.data.subscription.subscription_id;
+    try {
+      const res = await this.http.request<{ data: { subscription: { subscription_id: string } } }>(ctx, {
+        method: "POST",
+        path: paths.activitySubscriptions,
+        endpoint: "create_activity_subscription",
+        body: { event_type: opts.eventType, filter: { user_id: me.id }, webhook_id: opts.webhookId, tag: opts.tag },
+      });
+      return res.data.subscription.subscription_id;
+    } catch (err) {
+      const cause = xCause(err);
+      if (cause?.status === 400 && cause.problem?.errors?.some((e) => e.message?.startsWith("DuplicateSubscription"))) return undefined;
+      throw err;
+    }
   }
 
   // Every DM event newer than sinceId, one page at a time, newest first, for

@@ -239,6 +239,37 @@ describe("subscriptions", () => {
     expect((await rows("x_webhook_accounts"))[0]).toMatchObject({ xUserId: ME, subscriptionIds: ["11", "100", "101", "102", "103"] });
   });
 
+  test("a subscription X lists no longer but still has counts as subscribed", async () => {
+    const { t, accountId, rows } = await setup();
+    const error = vi.spyOn(console, "error");
+    const calls = stubFetch({
+      "GET /2/activity/subscriptions": () => json({ data: [{ subscription_id: "s1", event_type: "dm.received", webhook_id: WEBHOOK_ID }] }),
+      "POST /2/activity/subscriptions": () =>
+        json(
+          {
+            title: "Invalid Request",
+            detail: "One or more parameters to your request was invalid.",
+            type: "https://api.x.com/2/problems/invalid-request",
+            errors: [{ message: "DuplicateSubscription: A subscription already exists for event type 'dm.sent' with the same filters" }],
+          },
+          400,
+        ),
+    });
+    await t.action(internal.x.webhook.subscribe, { accountId });
+    expect(calls.filter((c) => c.method === "POST").length).toBe(4);
+    expect((await rows("x_webhook_accounts"))[0]).toMatchObject({ accountId, subscriptionIds: ["s1", "s2"] });
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  test("other create failures still fail", async () => {
+    const { t, accountId } = await setup();
+    stubFetch({
+      "GET /2/activity/subscriptions": () => json({ data: [] }),
+      "POST /2/activity/subscriptions": () => json({ title: "Invalid Request", detail: "bad", errors: [{ message: "Invalid webhook_id" }] }, 400),
+    });
+    await expect(t.action(internal.x.webhook.subscribe, { accountId })).rejects.toMatchObject({ data: { kind: "platform" } });
+  });
+
   test("ensureAll retries a pause whose deletions failed", async () => {
     const { t, accountId, rows } = await setup();
     const until = Date.now() + 60 * 60 * 1000;

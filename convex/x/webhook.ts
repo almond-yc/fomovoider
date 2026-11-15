@@ -209,11 +209,17 @@ export const subscribe = internalAction({
     }
     if (missing.length) {
       const created = await withX(ctx, account, async (x, session) => {
-        const ids: string[] = [];
+        const ids: (string | undefined)[] = [];
         for (const eventType of missing) ids.push(await x.createActivitySubscription(session, { webhookId: webhook.webhookId, eventType, tag: TAG }));
         return ids;
       });
-      subscriptionIds.push(...created);
+      subscriptionIds.push(...created.filter((id): id is string => id !== undefined));
+      // X's list can omit subscriptions that exist; creating them again says
+      // DuplicateSubscription without an id, so the ids stored earlier stay.
+      if (created.includes(undefined)) {
+        const stored = await ctx.runQuery(internal.x.webhook.subscriptions, { accountId });
+        for (const id of stored?.xUserId === xUserId ? stored.subscriptionIds : []) if (!subscriptionIds.includes(id)) subscriptionIds.push(id);
+      }
     }
     await ctx.runMutation(internal.x.webhook.saveSubscriptions, { accountId, xUserId, subscriptionIds });
     return null;

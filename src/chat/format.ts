@@ -8,9 +8,6 @@ const DAY = 24 * HOUR;
 const PLATFORM_NAMES: Record<string, string> = {
   x: "X",
   instagram: "Instagram",
-  telegram: "Telegram",
-  whatsapp: "WhatsApp",
-  messenger: "Messenger",
 };
 
 export function platformName(platform: string): string {

@@ -1,6 +1,5 @@
 import { isLockedXChat, useXChatInbox, useXChatMessages, XCHAT_UNLOCK_HREF, XChatProvider } from '@/src/xchat';
 import type { ChatConversation } from '@/src/chat/types';
-import { useConvexAuth } from 'convex/react';
 import { router } from 'expo-router';
 import type { ReactNode } from 'react';
 
@@ -13,11 +12,8 @@ const X_CHAT: ChatSources = {
 };
 
 // Encrypted X Chat (src/xchat) decrypted on this phone, merged into the inbox
-// and conversation screens. The X Chat hooks query Convex, so they only mount
-// once the user is signed in; the subtree remounts when that changes.
+// and conversation screens.
 export function ChatProviders({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useConvexAuth();
-  if (!isAuthenticated) return <>{children}</>;
   return (
     <XChatProvider>
       <ChatSourcesProvider sources={X_CHAT}>{children}</ChatSourcesProvider>

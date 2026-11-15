@@ -1,5 +1,6 @@
 import { PlatformBadge } from '@/components/platform-badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+// avatar hidden for now, per Alex
+// import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Text } from '@/components/ui/text';
 import { openBrowserAsync } from 'expo-web-browser';
 import { Pressable, View } from 'react-native';
@@ -12,12 +13,14 @@ export function ContentItem({ post, title }: { post: FeedPost; title?: string })
 
   return (
     <View className="flex-row gap-3 px-5 py-5">
+      {/* avatar hidden for now, per Alex
       <Avatar alt={author.displayName}>
         {author.avatarUrl ? <AvatarImage source={{ uri: author.avatarUrl }} /> : null}
         <AvatarFallback>
           <Text className="text-xs text-muted-foreground">{author.displayName.slice(0, 1)}</Text>
         </AvatarFallback>
       </Avatar>
+      */}
       <View className="flex-1 gap-2">
         <Text className="text-sm" numberOfLines={1}>
           <Text className="font-sans-semibold text-sm">{author.displayName}</Text>

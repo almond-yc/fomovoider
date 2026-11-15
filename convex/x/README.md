@@ -37,6 +37,14 @@ X Chat messages are end-to-end encrypted with keys that only the user's X Chat p
 
 Chat event reads come out of `chatEventReads` in the budget below.
 
+## Sending (legacy DMs and replies)
+
+Sends happen only when a person taps send in the app; the sync never posts. Each send uses one of the daily `writes` (`X_DAILY_WRITE_BUDGET`) and is upserted right away, so the inbox and feed show it before the next sync. Failures are `ConvexError`s carrying a `ConnectorError`.
+
+- `internal.x.send.message({ accountId, conversationId, text })` sends a legacy DM (`POST /2/dm_conversations/{id}/messages`), stores it with `ingest.upsertMessages`, moves the conversation's preview and order to it with `x/state:markSent` (unless a newer message is already there) and returns the `Message`. It is internal on purpose: the app's single send path, `messages.send`, checks that the user owns the account and conversation and calls it for X. X refusing a conversation that has moved to encrypted X Chat is a `platform` error, and the write is given back.
+- `api.x.send.reply({ postId, text })` replies to one of the signed-in user's synced posts and returns `{ id, createdAt, permalink }`. It checks the caller is signed in and owns both the X account and the post, which must be an X post, so nothing is reserved for a target X can't take. X only accepts replies to posts that @mention the user or quote one of their posts; its 403 for any other post becomes a `platform` error saying so.
+- An expired account fails with `session_expired` before any X call; an account still being set up fails with a `platform` error.
+
 ## Env (Convex deployment)
 
 | Var | |

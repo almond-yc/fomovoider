@@ -19,7 +19,7 @@ function json(body: unknown, status = 200) {
 
 type Call = { path: string; method: string; auth: string | null };
 
-function stubFetch(overrides: Record<string, () => Response> = {}) {
+function stubFetch(overrides: Record<string, () => Response | Promise<Response>> = {}) {
   const fixtureFetch = createFixtureFetch();
   const calls: Call[] = [];
   vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -230,6 +230,28 @@ describe("messages.send", () => {
     expect(result).toEqual({ ok: false, error: { kind: "session_expired" } });
     expect(await t.run((ctx) => ctx.db.get(alice.accounts.x!))).toMatchObject({ status: "expired" });
   });
+});
+
+test("a session_expired from a session the user has since replaced leaves the new session active", async () => {
+  const { t, signUp } = await setup();
+  const alice = await signUp("alice-token");
+  await alice.addConversation(CONVERSATION);
+  stubFetch({
+    [SEND_PATH]: async () => {
+      await t.run((ctx) =>
+        ctx.db.patch(alice.accounts.x!, {
+          session: { platform: "x", kind: "oauth", accessToken: "new-token", expiresAt: "2099-01-01T00:00:00.000Z" },
+          sessionVersion: 2,
+        }),
+      );
+      return json(fixtures["error-unauthorized"], 401);
+    },
+  });
+
+  const result = await alice.as.action(api.messages.send, { conversationId: CONVERSATION, text: "hi" });
+
+  expect(result).toEqual({ ok: false, error: { kind: "session_expired" } });
+  expect(await t.run((ctx) => ctx.db.get(alice.accounts.x!))).toMatchObject({ status: "active", sessionVersion: 2 });
 });
 
 describe("messages.markRead", () => {

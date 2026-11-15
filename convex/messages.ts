@@ -68,6 +68,19 @@ export const touchConversation = internalMutation({
   },
 });
 
+// Marks the account expired after a send was refused for an expired session,
+// unless the session was replaced since (the user reconnected meanwhile).
+export const expireSession = internalMutation({
+  args: { accountId: v.id("connectedAccounts"), sessionVersion: v.number() },
+  returns: v.null(),
+  handler: async (ctx, { accountId, sessionVersion }) => {
+    const account = await ctx.db.get(accountId);
+    if (!account || (account.sessionVersion ?? 0) !== sessionVersion) return null;
+    await ctx.db.patch(accountId, { status: "expired", lastError: { kind: "session_expired" } });
+    return null;
+  },
+});
+
 export const clearUnread = internalMutation({
   args: { conversationId: v.id("conversations") },
   returns: v.null(),
@@ -103,8 +116,11 @@ export const send = action({
     } catch (err) {
       await session.saved().catch(() => undefined);
       const error = toConnectorError(err);
-      if (error.kind === "session_expired") {
-        await ctx.runMutation(internal.accounts.recordSync, { accountId: account._id, error });
+      if (error.kind === "session_expired" && !session.stale()) {
+        await ctx.runMutation(internal.messages.expireSession, {
+          accountId: account._id,
+          sessionVersion: session.version(),
+        });
       }
       return { ok: false as const, error };
     }
@@ -152,6 +168,7 @@ export const markRead = action({
 async function sessionTracker(ctx: ActionCtx, account: Doc<"connectedAccounts">) {
   let saving: Promise<unknown> = Promise.resolve();
   let version = account.sessionVersion ?? 0;
+  let stale = false;
   return {
     refreshed: (next: Session) => {
       saving = saving.then(async () => {
@@ -161,9 +178,12 @@ async function sessionTracker(ctx: ActionCtx, account: Doc<"connectedAccounts">)
           expectedVersion: version,
         });
         if (result.saved) version = result.sessionVersion;
+        else stale = true;
       });
     },
     saved: () => saving,
+    version: () => version,
+    stale: () => stale,
   };
 }
 

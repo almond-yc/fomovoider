@@ -16,6 +16,7 @@ import { conversationTitle, sendErrorText, unavailableText, withDaySeparators, t
 import type { ChatConversation, ChatMessage } from '@/src/chat/types';
 import { useAction, useConvexAuth, usePaginatedQuery, useQuery } from 'convex/react';
 import { Stack, useLocalSearchParams } from 'expo-router';
+import { useHeaderHeight } from 'expo-router/react-navigation';
 import { MessageCircleOff } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, KeyboardAvoidingView, Platform, View } from 'react-native';
@@ -39,6 +40,7 @@ export default function ConversationScreen() {
   const sendAction = useAction(api.messages.send);
   const markRead = useAction(api.messages.markRead);
   const [pending, setPending] = useState<PendingMessage[]>([]);
+  const headerHeight = useHeaderHeight();
 
   const readable = !!conversation && !conversation.unavailable;
   useEffect(() => {
@@ -109,7 +111,10 @@ export default function ConversationScreen() {
   return (
     <Screen>
       <Header conversation={conversation as ChatConversation | undefined} title={title} />
-      <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView
+        className="flex-1"
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={headerHeight}>
         {sourceThread?.error ? (
           <Text className="px-5 py-2 text-center text-sm text-destructive">{sourceThread.error}</Text>
         ) : null}

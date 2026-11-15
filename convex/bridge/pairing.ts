@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import { action, internalMutation, query } from "../_generated/server";
 import { requireUserId } from "../lib/auth";
 import { callBridge } from "./lib";
@@ -63,7 +64,7 @@ export const status = query({
 export const begin = internalMutation({
   args: { platform: vBridgePlatform },
   returns: v.id("connectedAccounts"),
-  handler: async (ctx, { platform }) => {
+  handler: async (ctx, { platform }): Promise<Id<"connectedAccounts">> => {
     const userId = await requireUserId(ctx);
     const previous = await ctx.db
       .query("bridge_devices")

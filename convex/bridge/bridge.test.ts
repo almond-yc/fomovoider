@@ -26,6 +26,8 @@ const conversation = {
   updatedAt: message.sentAt,
 };
 
+const qrStep = (url: string) => ({ kind: "qr", url, expiresAt: "2026-11-15T12:01:00.000Z" });
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
@@ -53,8 +55,8 @@ async function setup() {
       body: JSON.stringify(event),
     });
   const pair = async () => {
-    const calls = stubBridge({ "/v1/login": () => json({ flow: "qr", code: "2@qr-payload" }) });
-    await as.action(api.bridge.pairing.start, { platform: "whatsapp" });
+    const calls = stubBridge({ "/v1/login": () => json(qrStep("2@qr-payload")) });
+    await as.action(api.bridge.pairing.start, { platform: "whatsapp", input: { method: "qr" } });
     const [account] = await t.run((ctx) => ctx.db.query("connectedAccounts").collect());
     return { calls, accountId: account!._id };
   };
@@ -78,7 +80,7 @@ describe("bridge host", () => {
     expect(calls).toEqual([
       {
         path: "/v1/login",
-        body: { accountId, platform: "whatsapp", flow: "qr" },
+        body: { accountId, platform: "whatsapp", method: "qr" },
         auth: `Bearer ${SECRET}`,
       },
     ]);
@@ -87,17 +89,17 @@ describe("bridge host", () => {
     expect(account).toMatchObject({ status: "pending", session: { platform: "whatsapp", kind: "device", deviceId: device!._id } });
     expect(await as.query(api.bridge.pairing.status, { platform: "whatsapp" })).toMatchObject({
       status: "pairing",
-      flow: "qr",
-      code: "2@qr-payload",
+      step: qrStep("2@qr-payload"),
     });
   });
 
   test("a phone number starts the pairing-code flow", async () => {
     const { as } = await setup();
-    const calls = stubBridge({ "/v1/login": () => json({ flow: "code", code: "ABCD-EFGH" }) });
-    await as.action(api.bridge.pairing.start, { platform: "whatsapp", phone: "+15550000001" });
-    expect(calls[0]!.body).toMatchObject({ flow: "phone", phone: "+15550000001" });
-    expect(await as.query(api.bridge.pairing.status, { platform: "whatsapp" })).toMatchObject({ flow: "code", code: "ABCD-EFGH" });
+    const step = { kind: "showCode", code: "ABCD-EFGH", expiresAt: "2026-11-15T12:03:00.000Z" };
+    const calls = stubBridge({ "/v1/login": () => json(step) });
+    await as.action(api.bridge.pairing.start, { platform: "whatsapp", input: { method: "phone", phone: "+15550000001" } });
+    expect(calls[0]!.body).toMatchObject({ method: "phone", phone: "+15550000001" });
+    expect(await as.query(api.bridge.pairing.status, { platform: "whatsapp" })).toMatchObject({ step });
   });
 
   test("rejects pushes without the shared secret", async () => {
@@ -110,8 +112,8 @@ describe("bridge host", () => {
     const { t, as, post, pair } = await setup();
     const { accountId } = await pair();
 
-    expect((await post({ accountId, kind: "pairing", flow: "qr", code: "2@next" })).status).toBe(204);
-    expect((await as.query(api.bridge.pairing.status, { platform: "whatsapp" }))?.code).toBe("2@next");
+    expect((await post({ accountId, kind: "pairing", step: qrStep("2@next") })).status).toBe(204);
+    expect((await as.query(api.bridge.pairing.status, { platform: "whatsapp" }))?.step).toEqual(qrStep("2@next"));
 
     expect((await post({ accountId, kind: "connected", me })).status).toBe(204);
     expect(await t.run((ctx) => ctx.db.get(accountId))).toMatchObject({ status: "active", me });
@@ -142,6 +144,24 @@ describe("bridge host", () => {
     });
     expect((await post({ accountId, kind: "connected", me })).status).toBe(400);
     expect(await t.run((ctx) => ctx.db.get(accountId))).toMatchObject({ status: "pending" });
+  });
+
+  test("refuses a device session pointing at another user's device", async () => {
+    const { t, post, pair } = await setup();
+    const { accountId } = await pair();
+    const otherUser = await t.run((ctx) => ctx.db.insert("users", {}));
+    const otherDevice = await t.run((ctx) =>
+      ctx.db.insert("bridge_devices", { userId: otherUser, platform: "whatsapp", accountId, status: "pairing", updatedAt: 0 }),
+    );
+    await t.mutation(internal.accounts.connectDevice, {
+      userId: (await t.run((ctx) => ctx.db.get(accountId)))!.userId,
+      platform: "whatsapp",
+      deviceId: otherDevice,
+    });
+    expect((await post({ accountId, kind: "connected", me })).status).toBe(400);
+    await expect(
+      t.action(internal.bridge.send.send, { accountId, conversationId: conversation.id, text: "hi" }),
+    ).rejects.toThrow(/Not a bridge account/);
   });
 
   test("a logout on the phone expires the account", async () => {

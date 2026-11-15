@@ -53,11 +53,11 @@ Only the adapter's port is published. For local development against
   users by masquerading, so it holds no per-user tokens, and the bridges
   double-puppet through the same appservice token, so messages sent from the
   phone appear as the owner's own (`isMine`).
-- **Pairing**: `POST /v1/login` logs out any previous login of the account, then
-  starts the bridge's provisioning login (`qr`, or `phone` with a number) and
-  returns the first QR payload or pairing code. It keeps waiting on the bridge
-  and pushes each refreshed code, then `connected` with the remote identity, or
-  `failed`.
+- **Pairing**: `POST /v1/login { method: "qr" | "phone", phone? }` logs out any
+  previous login of the account, starts the bridge's provisioning login and
+  returns the first contract `LoginStep`: `qr { url, expiresAt }` or
+  `showCode { code, expiresAt }`. It keeps waiting on the bridge and pushes each
+  refreshed step, then `connected` with the remote identity, or `failed`.
 - **Receive**: Synapse pushes every event in rooms the account's user is in.
   Rooms carrying `m.bridge` state are portals: conversation id
   `<platform>:<chat id>` (the WhatsApp JID), message id `<platform>:<Matrix event id>`.
@@ -81,11 +81,14 @@ same `BRIDGE_SECRET`.
 
 ## Convex side (`convex/bridge/`)
 
-- `pairing.start({ platform, phone? })` (action, signed in): creates the device
-  row and the `device` session, asks the adapter to start pairing.
-- `pairing.status({ platform })` (query): `{ status, flow, code, error }` to render.
-  `flow: "qr"` means render `code` as a QR code; `flow: "code"` means show the
-  code to type in WhatsApp > Linked devices > Link with phone number instead.
+- `pairing.start({ platform, input: { method: "qr" } | { method: "phone", phone } })`
+  (action, signed in): creates the user's device row, stores the `device` session
+  with `internal.accounts.connectDevice`, and asks the adapter to start pairing.
+- `pairing.status({ platform })` (query): `{ status, step, error }`. `step` is the
+  contract's `LoginStep`: `qr` (render `url` as a QR code) or `showCode` (show
+  `code` to type into WhatsApp > Linked devices > Link with phone number).
+- Every use of a bridge account (events, send, markRead) re-checks that its
+  device row belongs to the account's user.
 - `POST /bridge/events` (HTTP action) → `internal.bridge.events.apply`:
   pairing/connected/failed/logged_out/sync, one transaction per event, only for
   accounts whose session points at their device.

@@ -18,7 +18,7 @@ Everything in `convex/` except `convex/<platform>/`:
 
 ## Connectors own `convex/<platform>/`
 
-Sync actions, crons, token or cookie helpers and relevance scoring live in `convex/x/`, `convex/instagram/`, and so on. A connector edits no shared file except to register its tables and crons (below); any other shared change goes through the App crew.
+Sync actions, crons, token or cookie helpers and relevance scoring live in `convex/x/`, `convex/instagram/`, and so on. A connector edits no shared file except to register its tables, crons and HTTP routes (below); any other shared change goes through the App crew.
 
 ### Connector-owned tables
 
@@ -34,7 +34,7 @@ export const instagramTables = {
 };
 ```
 
-It registers them with one import and one spread in `convex/schema.ts`, one of the two changes a connector makes to a shared file (the other is its cron registration, below):
+It registers them with one import and one spread in `convex/schema.ts`, one of the three changes a connector makes to a shared file (the others are its cron and HTTP route registrations, below):
 
 ```ts
 import { instagramTables } from "./instagram/schema";
@@ -71,7 +71,32 @@ registerXCrons(crons);
 export default crons;
 ```
 
-Prefix job names with the platform so they stay unique. Adding the import and the `register<Platform>Crons(crons)` call is, with the table spread, the only change a connector makes to a shared file.
+Prefix job names with the platform so they stay unique.
+
+### Connector HTTP routes
+
+`convex/http.ts` is the shared HTTP router. A connector that needs HTTP actions (webhooks, a bridge host pushing events) exports a `register<Name>Routes(http)` function from its own folder, and `http.ts` calls one per connector:
+
+```ts
+// convex/bridge/http.ts
+import type { HttpRouter } from "convex/server";
+
+export function registerBridgeRoutes(http: HttpRouter) {
+  http.route({ path: "/bridge/events", method: "POST", handler: events });
+}
+```
+
+```ts
+// convex/http.ts
+import { registerBridgeRoutes } from "./bridge/http";
+
+auth.addHttpRoutes(http);
+registerBridgeRoutes(http);
+```
+
+Every route lives under the connector's own prefix (`/bridge/...`, `/telegram/...`) so paths never collide, and every route authenticates its own caller (a shared secret, a webhook signature) before it touches data: HTTP actions have no signed-in user.
+
+The table spread, the `register<Platform>Crons(crons)` call and the `register<Name>Routes(http)` call, each with its import, are the only changes a connector makes to a shared file.
 
 A `device` session holds only a `deviceId` pointing into such a table; device secrets stay there, never in `connectedAccounts`.
 

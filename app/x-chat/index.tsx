@@ -1,7 +1,7 @@
 import { Text } from "@/components/ui/text";
 import { api } from "@/convex/_generated/api";
 import { type InboxConversation, isLockedXChat, useXChat, useXChatInbox } from "@/src/xchat";
-import { usePaginatedQuery } from "convex/react";
+import { useConvexAuth, usePaginatedQuery } from "convex/react";
 import { Link, router } from "expo-router";
 import { FlatList, Pressable, View } from "react-native";
 
@@ -13,7 +13,8 @@ function title(conversation: InboxConversation): string {
 // tab merges X Chat through useXChatInbox (src/xchat/README.md).
 export default function XChatInboxScreen() {
   const chat = useXChat();
-  const { results, status, loadMore } = usePaginatedQuery(api.conversations.list, {}, { initialNumItems: 50 });
+  const { isAuthenticated } = useConvexAuth();
+  const { results, status, loadMore } = usePaginatedQuery(api.conversations.list, isAuthenticated ? {} : "skip", { initialNumItems: 50 });
   const conversations = useXChatInbox(results?.filter(isLockedXChat));
   const unlocked = chat.status === "unlocked";
 

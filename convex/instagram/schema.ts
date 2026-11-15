@@ -18,6 +18,17 @@ export const vTripwire = v.object({
   screenText: v.string(),
 });
 
+export const vFacts = v.object({
+  sponsored: v.boolean(),
+  suggested: v.boolean(),
+  isReel: v.boolean(),
+  paidPartnership: v.optional(v.boolean()),
+  followsAuthor: v.optional(v.boolean()),
+  storyTrayPosition: v.optional(v.number()),
+});
+
+export const vFeedVariant = v.union(v.literal("home"), v.literal("following"));
+
 export const instagramTables = {
   // Which device and post an uploaded capture belongs to. submitItems binds a
   // file on first use, so no other device or post can adopt it.
@@ -39,6 +50,9 @@ export const instagramTables = {
     pairingArmedBy: v.optional(v.id("users")),
     timezone: v.string(),
     scheduleEnabled: v.boolean(),
+    // Who captures for this device: the Mac host agent driving the iPhone app
+    // over WebDriverAgent (unset), or the Fomovoider app's hidden web view.
+    transport: v.optional(v.literal("webview")),
     pausedUntil: v.optional(v.number()),
     pauseReason: v.optional(v.string()),
     lastSeenAt: v.optional(v.number()),
@@ -51,7 +65,8 @@ export const instagramTables = {
   // budget; the host agent decides how it moves.
   instagram_runs: defineTable({
     deviceId: v.id("instagram_devices"),
-    trigger: v.union(v.literal("scheduled"), v.literal("manual")),
+    // open and background are web-view refreshes the app starts itself.
+    trigger: v.union(v.literal("scheduled"), v.literal("manual"), v.literal("open"), v.literal("background")),
     scheduledFor: v.number(),
     state: v.union(
       v.literal("pending"),
@@ -79,7 +94,29 @@ export const instagramTables = {
     sponsored: v.boolean(),
     suggested: v.boolean(),
     isReel: v.boolean(),
+    paidPartnership: v.optional(v.boolean()),
     followsAuthor: v.optional(v.boolean()),
     storyTrayPosition: v.optional(v.number()),
   }).index("by_userId_and_postId", ["userId", "postId"]),
+
+  // Where the web view's feed reading stopped, per device and feed variant:
+  // the page's own end_cursor of the deepest page captured, and the newest
+  // post seen at the top, so the next refresh stops once it reaches it.
+  instagram_feedCursors: defineTable({
+    deviceId: v.id("instagram_devices"),
+    variant: vFeedVariant,
+    endCursor: v.optional(v.string()),
+    hasNextPage: v.boolean(),
+    newestId: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_deviceId_and_variant", ["deviceId", "variant"]),
+
+  // Global switches. "killSwitch" enabled stops every Instagram refresh, web
+  // view and host agent alike, at once.
+  instagram_flags: defineTable({
+    name: v.literal("killSwitch"),
+    enabled: v.boolean(),
+    reason: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_name", ["name"]),
 };

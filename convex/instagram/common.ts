@@ -16,3 +16,13 @@ export async function deviceForToken(ctx: Pick<QueryCtx, "db">, token: string): 
   if (!device) throw new Error("Unknown device token");
   return device;
 }
+
+// The global kill switch (instagram/killSwitch:set). While it is on, no
+// Instagram refresh starts anywhere and running web-view refreshes stop.
+export async function killSwitch(ctx: Pick<QueryCtx, "db">) {
+  const flag = await ctx.db
+    .query("instagram_flags")
+    .withIndex("by_name", (q) => q.eq("name", "killSwitch"))
+    .unique();
+  return flag?.enabled ? { reason: flag.reason } : null;
+}

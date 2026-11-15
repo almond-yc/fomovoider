@@ -145,6 +145,16 @@ describe("instagram device runs", () => {
     expect(await t.run((ctx) => ctx.storage.getUrl(older))).not.toBeNull();
   });
 
+  test("the kill switch pauses the host agent and skips its due run", async () => {
+    const { t, userId } = await paired();
+    await t.mutation(internal.instagram.devices.runNowForUser, { userId });
+    await t.mutation(internal.instagram.killSwitch.set, { enabled: true });
+    const claimed = await t.mutation(api.instagram.agent.claimRun, { token: TOKEN });
+    expect(claimed).toMatchObject({ kind: "paused", reason: "kill switch" });
+    const runs = await t.run((ctx) => ctx.db.query("instagram_runs").collect());
+    expect(runs.map((r) => r.state)).toEqual(["skipped"]);
+  });
+
   test("a tripwire aborts the run and pauses the device for 72 hours", async () => {
     const { t, userId, deviceId } = await paired();
     const run = await claim(t, userId);

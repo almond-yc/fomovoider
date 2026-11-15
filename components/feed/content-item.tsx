@@ -1,4 +1,4 @@
-import { PlatformBadge } from '@/components/platform-badge';
+import { PlatformBadge, platformName } from '@/components/platform-badge';
 // avatar hidden for now, per Alex
 // import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Text } from '@/components/ui/text';
@@ -33,11 +33,11 @@ export function ContentItem({ post, title }: { post: FeedPost; title?: string })
         ))}
         <Pressable
           onPress={() => openBrowserAsync(post.permalink)}
-          hitSlop={8}
+          hitSlop={15}
           accessibilityRole="link"
-          className="flex-row items-center gap-1.5 self-start">
+          accessibilityLabel={`View original on ${platformName(post.platform)}`}
+          className="self-start">
           <PlatformBadge platform={post.platform} />
-          <Text className="text-xs text-muted-foreground">View original ↗</Text>
         </Pressable>
       </View>
     </View>

@@ -85,13 +85,30 @@ export interface Cookie {
 export type Session =
   | { platform: PlatformId; kind: "cookies"; cookies: Cookie[]; userAgent?: string }
   | { platform: PlatformId; kind: "oauth"; accessToken: string; refreshToken?: string; expiresAt?: ISODate }
-  // A paired phone the connector drives. deviceId points into the connector's own device table; no secrets here.
+  // A paired phone the connector drives, or a linked session it holds (Telegram).
+  // deviceId points into the connector's own table; no secrets here.
   | { platform: PlatformId; kind: "device"; deviceId: string };
+
+// One round of a "steps" login. The app shows what the step asks for and
+// passes the person's answer to next(); "done" means the account is connected.
+export type LoginStep =
+  | { kind: "qr"; url: string; expiresAt: ISODate }                        // show url as a QR code; call next() to poll
+  | { kind: "code"; phone: string; via?: string; length?: number }         // ask for the code sent via app, sms, call, ...
+  | { kind: "password"; hint?: string }                                    // ask for the account's 2FA password
+  | { kind: "done"; session: Session };
 
 export type Login =
   | { kind: "webview"; loginUrl: string; requiredCookies: string[] }        // app captures cookies
   | { kind: "oauth"; login(): Promise<Session> }                             // connector-provided helper
-  | { kind: "device"; pair(): Promise<Session> };                            // connector-provided pairing flow
+  | { kind: "device"; pair(): Promise<Session> }                             // connector-provided pairing flow
+  // A server-side login in rounds (Telegram: QR code or phone code, then 2FA).
+  | {
+      kind: "steps";
+      methods: ("qr" | "phone")[];
+      start(input: { method: "qr" } | { method: "phone"; phone: string }): Promise<LoginStep>;
+      next(answer?: string): Promise<LoginStep>;
+      cancel(): Promise<void>;
+    };
 
 export interface Account {
   platform: PlatformId;

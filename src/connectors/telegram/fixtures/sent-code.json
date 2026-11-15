@@ -1,0 +1,8 @@
+{
+  "_": "auth.sentCode",
+  "type": {
+    "_": "auth.sentCodeTypeApp",
+    "length": 5
+  },
+  "phoneCodeHash": "a1b2c3d4e5"
+}

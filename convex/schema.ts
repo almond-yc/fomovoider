@@ -14,6 +14,7 @@ import {
 // Connector-owned tables: one import and one spread per connector, e.g.
 // import { instagramTables } from "./instagram/schema";
 // See convex/README.md, "Connector-owned tables".
+import { telegramTables } from "./telegram/schema";
 import { xTables } from "./x/schema";
 
 const sharedTables = {
@@ -85,5 +86,6 @@ const sharedTables = {
 export default defineSchema({
   ...sharedTables,
   ...xTables,
+  ...telegramTables,
   // ...instagramTables,
 });

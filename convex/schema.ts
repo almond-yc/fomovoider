@@ -24,6 +24,10 @@ const sharedTables = {
     userId: v.id("users"),
     platform: vPlatform,
     session: vSession,
+    // Bumped on every session write (connect, saveSession). A connector passes
+    // the version it read to saveSession so a late refresh can't overwrite a
+    // newer session. Unset on rows from before it existed; read as 0.
+    sessionVersion: v.optional(v.number()),
     me: v.optional(vPerson),
     status: vAccountStatus,
     lastError: v.optional(vConnectorError),

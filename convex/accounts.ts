@@ -58,13 +58,19 @@ export const connect = mutation({
       )
       .unique();
     if (existing) {
-      await ctx.db.patch(existing._id, { session, status: "pending", lastError: undefined });
+      await ctx.db.patch(existing._id, {
+        session,
+        sessionVersion: (existing.sessionVersion ?? 0) + 1,
+        status: "pending",
+        lastError: undefined,
+      });
       return existing._id;
     }
     return await ctx.db.insert("connectedAccounts", {
       userId,
       platform: session.platform,
       session,
+      sessionVersion: 1,
       status: "pending",
     });
   },
@@ -187,17 +193,37 @@ export const purgeContent = internalMutation({
 });
 
 // Persists a session a connector refreshed mid-call (onSessionRefreshed).
+// Pass expectedVersion, the sessionVersion of the account the connector read
+// (internal.accounts.get) before refreshing: if the session was replaced since
+// (the user reconnected, or another refresh landed), the write is refused with
+// { saved: false } instead of overwriting the newer session. Without
+// expectedVersion the write always goes through.
 export const saveSession = internalMutation({
-  args: { accountId: v.id("connectedAccounts"), session: vSession },
-  returns: v.null(),
-  handler: async (ctx, { accountId, session }) => {
+  args: {
+    accountId: v.id("connectedAccounts"),
+    session: vSession,
+    expectedVersion: v.optional(v.number()),
+  },
+  returns: v.union(
+    v.object({ saved: v.literal(true), sessionVersion: v.number() }),
+    v.object({
+      saved: v.literal(false),
+      reason: v.literal("session_changed"),
+      sessionVersion: v.number(),
+    }),
+  ),
+  handler: async (ctx, { accountId, session, expectedVersion }) => {
     const account = await ctx.db.get(accountId);
     if (!account) throw new Error("Connected account not found");
     if (session.platform !== account.platform) {
       throw new Error(`Session for ${session.platform} on a ${account.platform} account`);
     }
-    await ctx.db.patch(accountId, { session });
-    return null;
+    const current = account.sessionVersion ?? 0;
+    if (expectedVersion !== undefined && expectedVersion !== current) {
+      return { saved: false as const, reason: "session_changed" as const, sessionVersion: current };
+    }
+    await ctx.db.patch(accountId, { session, sessionVersion: current + 1 });
+    return { saved: true as const, sessionVersion: current + 1 };
   },
 });
 

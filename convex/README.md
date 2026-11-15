@@ -84,7 +84,7 @@ All internal, called with `ctx.runQuery` / `ctx.runMutation` from a sync action.
 | `internal.accounts.listByPlatform({ platform })` | Accounts to sync in a cron. |
 | `internal.accounts.get({ accountId })` | The account with its `session`. |
 | `internal.accounts.verifyIdentity({ accountId, me })` | Required while `status` is `pending` (after every `accounts.connect`): pass `account()`'s `me`. A different identity than before drops the old cursor and cached content; the account is `resetting` until the purge finishes. Ingest refuses in both states. |
-| `internal.accounts.saveSession({ accountId, session })` | Persist a refreshed session (`onSessionRefreshed`). |
+| `internal.accounts.saveSession({ accountId, session, expectedVersion? })` | Persist a refreshed session (`onSessionRefreshed`). Pass the `sessionVersion` you read with `accounts.get`; if the session changed since (the user reconnected), it returns `{ saved: false, reason: "session_changed" }` and keeps the newer session. |
 | `internal.accounts.recordSync({ accountId, error? })` | After a sync: success stamps `lastSyncedAt`; a `ConnectorError` sets status `expired` (`session_expired`) or `error`. |
 | `internal.ingest.upsertPosts({ accountId, posts, page? })` | Upsert `Post[]` by id, including `format`, `expiresAt` and `extracted`; `page: { cursor, caughtUp }` saves the feed cursor. Read it back from `feedCursors` for the next `since`. |
 | `internal.ingest.upsertConversations({ accountId, conversations })` | Upsert `Conversation[]` by id. |

@@ -352,6 +352,46 @@ describe("accounts", () => {
     ).rejects.toThrow();
   });
 
+  test("saveSession refuses a late refresh once the session was replaced", async () => {
+    const { t, signUp, connect } = await setup();
+    const alice = await signUp();
+    const accountId = await connect(alice, "x");
+    const read = await t.query(internal.accounts.get, { accountId });
+    expect(read?.sessionVersion).toBe(1);
+
+    // The user reconnects while a sync still holds the old session.
+    await alice.as.mutation(api.accounts.connect, {
+      session: { platform: "x", kind: "oauth", accessToken: "reconnected" },
+    });
+    const late = await t.mutation(internal.accounts.saveSession, {
+      accountId,
+      session: { platform: "x", kind: "oauth", accessToken: "late-refresh" },
+      expectedVersion: read!.sessionVersion!,
+    });
+    expect(late).toEqual({ saved: false, reason: "session_changed", sessionVersion: 2 });
+    expect((await t.query(internal.accounts.get, { accountId }))?.session).toMatchObject({
+      accessToken: "reconnected",
+    });
+
+    const fresh = await t.mutation(internal.accounts.saveSession, {
+      accountId,
+      session: { platform: "x", kind: "oauth", accessToken: "refreshed" },
+      expectedVersion: 2,
+    });
+    expect(fresh).toEqual({ saved: true, sessionVersion: 3 });
+    // A second refresh racing from the same read loses too.
+    expect(
+      await t.mutation(internal.accounts.saveSession, {
+        accountId,
+        session: { platform: "x", kind: "oauth", accessToken: "racing" },
+        expectedVersion: 2,
+      }),
+    ).toMatchObject({ saved: false });
+    expect((await t.query(internal.accounts.get, { accountId }))?.session).toMatchObject({
+      accessToken: "refreshed",
+    });
+  });
+
   async function seedContent(t: ReturnType<typeof convexTest>, accountId: Id<"connectedAccounts">, platform: string) {
     await t.mutation(internal.ingest.upsertPosts, {
       accountId,

@@ -18,6 +18,7 @@ import { createFixtureFetch } from "../../src/connectors/x/mock";
 export const FEED_LIMIT = 10;
 export const DM_LIMIT = 2;
 const FIRST_FEED_WINDOW_MS = 24 * 60 * 60 * 1000;
+const RETRY_PENDING_MS = 60 * 1000;
 const REQUEST_SYNC_MIN_INTERVAL_MS = 15 * 60 * 1000;
 
 // Cron entry point: one scheduled sync per connected X account, so one
@@ -66,7 +67,12 @@ export const syncAccount = internalAction({
     if (!loaded || loaded.account.platform !== "x" || loaded.account.session.kind !== "oauth") return null;
     const { account } = loaded;
     if (account.status === "expired" || account.status === "resetting") return null;
-    if (!(await ctx.runMutation(internal.x.state.claimSync, { accountId }))) return null;
+    if (!(await ctx.runMutation(internal.x.state.claimSync, { accountId }))) {
+      // A sync of the previous session still holds the lease; a reconnected
+      // account must not wait for the next cron to be verified.
+      if (account.status === "pending") await ctx.scheduler.runAfter(RETRY_PENDING_MS, internal.x.sync.syncAccount, { accountId });
+      return null;
+    }
 
     let session = account.session as Session;
     let saving: Promise<unknown> = Promise.resolve();
@@ -115,7 +121,9 @@ export const syncAccount = internalAction({
       await ctx.runMutation(internal.accounts.recordSync, { accountId });
     } catch (err) {
       await saving.catch(() => undefined);
-      if (!stale && !(err instanceof StaleSync)) {
+      const current = await ctx.runQuery(internal.accounts.get, { accountId });
+      const reconnected = (current?.sessionVersion ?? 0) !== sessionVersion;
+      if (!stale && !reconnected && !(err instanceof StaleSync)) {
         await ctx.runMutation(internal.accounts.recordSync, { accountId, error: toConnectorError(err) });
       }
     } finally {
@@ -173,13 +181,14 @@ async function syncWith(ctx: ActionCtx, x: XConnector, session: () => Session, i
 // so it stops without saving or recording anything.
 class StaleSync extends Error {}
 
-// A spent daily budget ends that step quietly: it is expected, resets at UTC
-// midnight, and is not an account error.
+// Fomovoider's own daily budget running out ends that step quietly: it is
+// expected, resets at UTC midnight (resetsAt), and is not an account error.
+// X refusing for lack of credits (402, no resetsAt) is recorded on the account.
 async function withinBudget(step: () => Promise<void>) {
   try {
     await step();
   } catch (err) {
-    if (err instanceof ConnectorFailure && err.error.kind === "budget_exhausted") return;
+    if (err instanceof ConnectorFailure && err.error.kind === "budget_exhausted" && err.error.resetsAt) return;
     throw err;
   }
 }

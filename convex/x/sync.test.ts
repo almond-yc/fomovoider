@@ -140,6 +140,14 @@ describe("x sync", () => {
     expect(calls).toEqual(["/2/users/me"]);
   });
 
+  test("X refusing for lack of credits is recorded on the account", async () => {
+    stubFetch({ "/2/dm_events": () => json(fixtures["error-out-of-credits"], 402) });
+    const { sync, account, all } = await setup();
+    await sync();
+    expect(await account()).toMatchObject({ status: "error", lastError: { kind: "budget_exhausted" } });
+    expect(await all("messages")).toHaveLength(0);
+  });
+
   test("the usage budget persists across syncs", async () => {
     vi.stubEnv("X_DAILY_POST_READ_BUDGET", "20");
     stubFetch();
@@ -218,6 +226,38 @@ describe("x sync", () => {
     expect(acc?.session).toMatchObject({ accessToken: "new-login" });
     expect(acc?.status).toBe("pending");
     expect(acc?.lastError).toBeUndefined();
+  });
+
+  test("a reconnect while a sync runs: the old sync records nothing and the new account is retried, then verified", async () => {
+    vi.useFakeTimers();
+    stubFetch();
+    const { t, as, accountId, account } = await setup();
+    await t.mutation(internal.x.state.claimSync, { accountId });
+    await as.mutation(api.accounts.connect, { session: { platform: "x", kind: "oauth", accessToken: "new-login", refreshToken: "r2" } });
+    await t.action(internal.x.sync.syncAccount, { accountId });
+    const scheduled = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    expect(scheduled.map((s) => s.name)).toContain("x/sync:syncAccount");
+    expect((await account())?.status).toBe("pending");
+    vi.useRealTimers();
+  });
+
+  test("a sync whose session was replaced mid-run neither writes nor records an error", async () => {
+    let reconnect = async () => {};
+    stubFetch({
+      "/2/dm_events": async () => {
+        await reconnect();
+        return json({ ...fixtures["dm-events"], meta: { result_count: 5 } });
+      },
+    });
+    const { t, as, accountId, sync, account, all } = await setup();
+    await t.run((ctx) => ctx.db.patch(accountId, { status: "active", me: { id: ME, platform: "x", handle: "XDevelopers", displayName: "X Developers" } }));
+    reconnect = async () => {
+      await as.mutation(api.accounts.connect, { session: { platform: "x", kind: "oauth", accessToken: "new-login" } });
+    };
+    await sync();
+    expect(await account()).toMatchObject({ status: "pending", session: { accessToken: "new-login" } });
+    expect((await account())?.lastError).toBeUndefined();
+    expect(await all("messages")).toHaveLength(0);
   });
 
   test("the cron schedules a sync for every X account that can sync", async () => {

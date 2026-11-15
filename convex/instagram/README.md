@@ -92,5 +92,4 @@ WebDriverAgent is reached over the CoreDevice tunnel (`xcrun devicectl device in
 - Captions are stored as shown, truncated at "… more"; carousels store their first slide; reels store their cover frame.
 - Times come from relative ages, so they are accurate to the unit shown (hours, days, weeks).
 - The agent uploads each crop to Convex storage and sends its URL. Ingest's media persistence (`PERSIST_MEDIA.instagram`) then copies that URL into storage again, so each crop is stored twice and the agent's upload outlives post retention. The fix is a contract change: let connectors pass `storageId` on input media.
-- `devices.connectDevice` is a stub of `internal.accounts.connectDevice` (FOMO-24, ALM-21) until that lands on main; `redeemPairing` should then call the shared one.
 - Instagram changes its UI often. The parser keys on accessibility ids (`main-feed`, `header-view`, `media-cell`, `story-fullscreen-overlay-view`, `story-tray-cell-*`, `user-switch-title-button`) that were current in November 2026.

@@ -23,8 +23,7 @@ export const redeemPairing = mutation({
       throw new Error("Invalid or expired pairing code");
     }
     if (device.pairingArmedBy !== device.userId) throw new Error("Pairing was not armed by the device owner");
-    // TODO(FOMO-24): switch to internal.accounts.connectDevice once it is on main.
-    const accountId = await ctx.runMutation(internal.instagram.devices.connectDevice, {
+    const accountId = await ctx.runMutation(internal.accounts.connectDevice, {
       userId: device.userId,
       platform: "instagram",
       deviceId: device._id,

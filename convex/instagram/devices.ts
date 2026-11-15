@@ -93,38 +93,6 @@ export const disconnect = mutation({
   },
 });
 
-// Stub matching internal.accounts.connectDevice({ userId, platform, deviceId })
-// from FOMO-24 (ALM-21), which is not on main yet: connects (or reconnects)
-// the user's account with a device session, pending until verifyIdentity.
-// Remove it and call internal.accounts.connectDevice once that lands.
-export const connectDevice = internalMutation({
-  args: { userId: v.id("users"), platform: v.string(), deviceId: v.string() },
-  returns: v.id("connectedAccounts"),
-  handler: async (ctx, { userId, platform, deviceId }) => {
-    const session = { platform, kind: "device" as const, deviceId };
-    const existing = await ctx.db
-      .query("connectedAccounts")
-      .withIndex("by_userId_and_platform", (q) => q.eq("userId", userId).eq("platform", platform))
-      .unique();
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        session,
-        sessionVersion: (existing.sessionVersion ?? 0) + 1,
-        status: "pending",
-        lastError: undefined,
-      });
-      return existing._id;
-    }
-    return await ctx.db.insert("connectedAccounts", {
-      userId,
-      platform,
-      session,
-      sessionVersion: 1,
-      status: "pending",
-    });
-  },
-});
-
 // The app's "Run now" button.
 export const runNow = mutation({
   args: {},

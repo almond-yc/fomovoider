@@ -14,7 +14,7 @@ Everything in `convex/` except `convex/<platform>/`:
 - `retention.ts`: the daily `app:retention` cron (registered with `registerAppCrons` in `crons.ts`) deletes posts past `expiresAt` and posts older than 30 days that the user hasn't saved, with their stored files and states.
 - `lib/validators.ts`: validators for the contract types. Import them instead of redefining.
 - `auth.ts`: Convex Auth with Google and Apple, the Password provider (email and password, no verification yet), and anonymous sign-in for dev deployments only (see "Sign-in").
-- Public functions for the app, all scoped to the signed-in user: `feed.page`, `feed.markCaughtUp`, `postStates.*`, `conversations.list`, `messages.list`, `users.viewer` (the signed-in user's email and connected accounts, or null when signed out; the app's gate and Settings read it), `accounts.list` (never returns sessions), `accounts.connect`, `accounts.disconnect`.
+- Public functions for the app, all scoped to the signed-in user: `feed.page`, `feed.markCaughtUp`, `postStates.*`, `conversations.list`, `messages.list`, `users.viewer` (the signed-in user's email, `slopDescription`, `onboardedAt` and connected accounts, or null when signed out; the app's gate and Settings read it), `users.setSlop` (saves the onboarding answer, trimmed and at most 1,000 characters; the first save stamps `onboardedAt`), `accounts.list` (never returns sessions), `accounts.connect`, `accounts.disconnect`.
 
 ## Sign-in
 

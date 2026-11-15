@@ -4,6 +4,7 @@ import { platformName } from '@/components/platform-badge';
 import { Text } from '@/components/ui/text';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { connectors } from '@/lib/connectors';
 import type { FunctionReturnType } from 'convex/server';
 import { useConvex, useConvexAuth, useMutation, usePaginatedQuery, useQuery } from 'convex/react';
 import { CircleCheck, Link2 } from 'lucide-react-native';
@@ -16,9 +17,6 @@ const PAGE_SIZE = 20;
 const SEEN_FLUSH_MS = 1500;
 const SEEN_BATCH = 100;
 
-// Platforms whose connector lets the app ask for a sync now. Pull to refresh
-// calls these; platforms without one just re-query.
-const SYNC_REQUESTS = { x: api.x.sync.requestSync } as const;
 
 export default function FeedScreen() {
   const convex = useConvex();
@@ -30,11 +28,10 @@ export default function FeedScreen() {
   const refresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.allSettled(
-      (accounts ?? []).flatMap(({ platform }) =>
-        platform in SYNC_REQUESTS
-          ? [convex.mutation(SYNC_REQUESTS[platform as keyof typeof SYNC_REQUESTS], {})]
-          : [],
-      ),
+      (accounts ?? []).flatMap(({ platform }) => {
+        const sync = connectors.find((c) => c.platform === platform)?.sync;
+        return sync ? [convex.mutation(sync, {})] : [];
+      }),
     );
     setSession((s) => s + 1);
     setRefreshing(false);

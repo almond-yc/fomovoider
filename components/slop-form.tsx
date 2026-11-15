@@ -2,6 +2,7 @@ import { Text } from '@/components/ui/text';
 import { api } from '@/convex/_generated/api';
 import { MAX_SLOP_DESCRIPTION_LENGTH } from '@/convex/lib/validators';
 import { THEME } from '@/lib/theme';
+import { cn } from '@/lib/utils';
 import { useMutation } from 'convex/react';
 import { useColorScheme } from 'nativewind';
 import { useState } from 'react';
@@ -30,6 +31,7 @@ export function SlopForm({
   const setSlop = useMutation(api.users.setSlop);
   const [value, setValue] = useState(initialValue);
   const [saving, setSaving] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const canSubmit = value.trim() !== '' && !saving;
 
@@ -70,7 +72,13 @@ export function SlopForm({
           textAlignVertical="top"
           placeholder="In your own words"
           placeholderTextColor={theme.mutedForeground}
-          className="mt-3 min-h-40 rounded-xl border border-input bg-background p-4 font-sans text-base leading-6 text-foreground"
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          className={cn(
+            'mt-3 min-h-40 rounded-xl border bg-background p-4 font-sans text-base leading-6 text-foreground',
+            focused ? 'border-ring' : 'border-input',
+            Platform.select({ web: 'outline-none' })
+          )}
         />
         {value.length > MAX_SLOP_DESCRIPTION_LENGTH * 0.8 && (
           <Text variant="muted" className="text-right text-xs">

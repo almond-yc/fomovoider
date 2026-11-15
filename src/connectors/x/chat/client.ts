@@ -92,11 +92,15 @@ export class XChatClient {
 
   // The inbox's X Chat conversations active since `since`, newest first, as
   // locked contract Conversations: participants and time only, no content.
-  async conversations(session: Session, opts: { meId: string; since?: ISODate; limit: number }): Promise<{ conversations: Conversation[]; newestAt?: ISODate; caughtUp: boolean }> {
+  // cursor continues an unfinished pass; nextCursor is set while one remains.
+  async conversations(
+    session: Session,
+    opts: { meId: string; since?: ISODate; cursor?: string; limit: number },
+  ): Promise<{ conversations: Conversation[]; newestAt?: ISODate; nextCursor?: string; caughtUp: boolean }> {
     const ctx = context(session);
     const grant = await this.reserve(opts.meId, "chatEventReads", Math.max(1, Math.min(opts.limit, 200)));
     const conversations: Conversation[] = [];
-    let token: string | undefined;
+    let token: string | undefined = opts.cursor;
     let used = 0;
     let hasMore = true;
     try {
@@ -126,19 +130,24 @@ export class XChatClient {
       await this.budget.release(opts.meId, "chatEventReads", grant - used);
     }
     const newestAt = conversations.reduce<ISODate | undefined>((max, c) => (!max || c.updatedAt > max ? c.updatedAt : max), undefined);
-    return { conversations, newestAt, caughtUp: !hasMore };
+    return { conversations, newestAt, ...(hasMore ? { nextCursor: token } : {}), caughtUp: !hasMore };
   }
 
   // Encrypted events of one conversation newer than `afterId`, newest first,
   // plus the key-change events X returns alongside them for decryption.
-  async events(session: Session, conversationId: Id, opts: { meId: string; afterId?: string; limit: number }): Promise<{ events: ChatEventRow[]; keyEvents: string[]; caughtUp: boolean }> {
+  // cursor continues an unfinished pass; nextCursor is set while one remains.
+  async events(
+    session: Session,
+    conversationId: Id,
+    opts: { meId: string; afterId?: string; cursor?: string; limit: number },
+  ): Promise<{ events: ChatEventRow[]; keyEvents: string[]; nextCursor?: string; caughtUp: boolean }> {
     const ctx = context(session);
     const target = chatTarget(conversationId, opts.meId);
     const grant = await this.reserve(opts.meId, "chatEventReads", Math.max(1, Math.min(opts.limit, MAX_CHAT_EVENTS)));
     const events: ChatEventRow[] = [];
     const keyEvents = new Set<string>();
     const after = opts.afterId === undefined ? undefined : eventSortKey(opts.afterId);
-    let token: string | undefined;
+    let token: string | undefined = opts.cursor;
     let billed = 0;
     let reachedStored = false;
     let hasMore = true;
@@ -174,7 +183,8 @@ export class XChatClient {
       if (billed > grant) await this.budget.reserve(opts.meId, "chatEventReads", billed - grant);
       else await this.budget.release(opts.meId, "chatEventReads", grant - billed);
     }
-    return { events, keyEvents: [...keyEvents], caughtUp: reachedStored || !hasMore };
+    const caughtUp = reachedStored || !hasMore;
+    return { events, keyEvents: [...keyEvents], ...(caughtUp ? {} : { nextCursor: token }), caughtUp };
   }
 
   // What the device needs to unlock and verify: the account's own key record
@@ -182,7 +192,14 @@ export class XChatClient {
   async keyContext(session: Session, opts: { meId: string; participantIds: string[] }): Promise<ChatKeyContext> {
     const ctx = context(session);
     const userIds = [...new Set([opts.meId, ...opts.participantIds])];
-    await this.reserve(opts.meId, "chatEventReads", userIds.length);
+    const granted = await this.reserve(opts.meId, "chatEventReads", userIds.length);
+    if (granted < userIds.length) {
+      await this.budget.release(opts.meId, "chatEventReads", granted);
+      throw new ConnectorFailure(
+        { kind: "budget_exhausted", resetsAt: new Date(this.budget.nextResetAt()).toISOString() },
+        "Fomovoider's daily X chatEventReads budget can't cover this chat's public keys",
+      );
+    }
     const signingKeys: ChatSigningKey[] = [];
     let mine: { version: string; juiceboxConfig: unknown } | undefined;
     for (const userId of userIds) {

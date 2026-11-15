@@ -1,12 +1,11 @@
 import { Text } from "@/components/ui/text";
 import { api } from "@/convex/_generated/api";
-import type { Conversation } from "@/src/connectors/types";
-import { isLockedXChat, useXChat, useXChatInbox } from "@/src/xchat";
+import { type InboxConversation, isLockedXChat, useXChat, useXChatInbox } from "@/src/xchat";
 import { usePaginatedQuery } from "convex/react";
 import { Link, router } from "expo-router";
 import { FlatList, Pressable, View } from "react-native";
 
-function title(conversation: Conversation): string {
+function title(conversation: InboxConversation): string {
   return conversation.title ?? (conversation.participants.map((p) => p.displayName || `@${p.handle}`).join(", ") || "X Chat");
 }
 
@@ -14,8 +13,8 @@ function title(conversation: Conversation): string {
 // tab merges X Chat through useXChatInbox (src/xchat/README.md).
 export default function XChatInboxScreen() {
   const chat = useXChat();
-  const { results } = usePaginatedQuery(api.conversations.list, {}, { initialNumItems: 50 });
-  const conversations = useXChatInbox(results?.filter((c) => c.platform === "x") as Conversation[] | undefined);
+  const { results, status, loadMore } = usePaginatedQuery(api.conversations.list, {}, { initialNumItems: 50 });
+  const conversations = useXChatInbox(results?.filter(isLockedXChat));
   const unlocked = chat.status === "unlocked";
 
   return (
@@ -36,7 +35,8 @@ export default function XChatInboxScreen() {
       <FlatList
         data={conversations ?? []}
         keyExtractor={(c) => c.id}
-        ListEmptyComponent={<Text className="p-6 text-center text-muted-foreground">No X conversations yet.</Text>}
+        onEndReached={() => status === "CanLoadMore" && loadMore(50)}
+        ListEmptyComponent={<Text className="p-6 text-center text-muted-foreground">No encrypted X Chat conversations yet.</Text>}
         renderItem={({ item }) => {
           const locked = isLockedXChat(item);
           return (

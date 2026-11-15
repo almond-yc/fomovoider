@@ -12,6 +12,8 @@ export const xTables = {
     dmCursor: v.optional(v.string()),
     dmPassNewestId: v.optional(v.string()),
     chatSince: v.optional(v.string()),
+    chatCursor: v.optional(v.string()),
+    chatPassNewestAt: v.optional(v.string()),
   }).index("by_accountId", ["accountId"]),
 
   // One sync at a time per account: a lease taken when a sync starts, and
@@ -44,4 +46,15 @@ export const xTables = {
   })
     .index("by_userId_and_conversationId_and_kind_and_sortKey", ["userId", "conversationId", "kind", "sortKey"])
     .index("by_userId_and_eventId", ["userId", "eventId"]),
+
+  // Per X Chat conversation: the newest event fully synced (sinceId), and an
+  // unfinished pass from newest to older that later fetches continue.
+  x_chat_cursors: defineTable({
+    userId: v.id("users"),
+    xUserId: v.string(),
+    conversationId: v.string(),
+    sinceId: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    passNewestId: v.optional(v.string()),
+  }).index("by_userId_and_conversationId", ["userId", "conversationId"]),
 };

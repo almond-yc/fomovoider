@@ -20,13 +20,14 @@ The X sync for Fomovoider. It runs the connector core in `src/connectors/x/` (of
 - `x_sync_locks`: per account, the sync lease and the last app request.
 - `x_usage`: the connector's daily budget counters, reserved atomically in a mutation.
 - `x_chat_events`: encrypted X Chat events and conversation key changes, stored exactly as X sent them (ciphertext only).
+- `x_chat_cursors`: per X Chat conversation, the event sync position.
 
 ## X Chat (encrypted DMs)
 
 X Chat messages are end-to-end encrypted with keys that only the user's X Chat passcode unlocks. Decryption happens on the phone; Convex only moves ciphertext.
 
-- `crons.ts` runs `x/chat:syncAll` every 6 hours. `syncAccount` lists up to `CHAT_LIST_LIMIT` conversations (`GET /2/chat/conversations`) and upserts each as a normal inbox row with `unavailable: { reason: "locked" }` and no message text. `x_sync_state.chatSince` remembers the newest conversation seen.
-- When the user opens a conversation, the app calls `x/chat:fetchEvents` (`GET /2/chat/conversations/{id}/events`, `EVENTS_PER_FETCH` per call) and reads the stored rows reactively through `x/chat:events`.
+- `crons.ts` runs `x/chat:syncAll` every 6 hours. `syncAccount` lists up to `CHAT_LIST_LIMIT` conversations (`GET /2/chat/conversations`) and upserts each as a normal inbox row with `unavailable: { reason: "locked" }` and no message text. `x_sync_state.chatSince` moves to the newest conversation only once a listing pass is complete; a pass cut off by the limit or budget resumes from `chatCursor` on the next run.
+- When the user opens a conversation, the app calls `x/chat:fetchEvents` (`GET /2/chat/conversations/{id}/events`, `EVENTS_PER_FETCH` per call) and reads the stored rows reactively through `x/chat:events`. Each conversation's position is in `x_chat_cursors`: a pass runs from the newest event down to `sinceId` (or the start of the chat) across fetches, and `sinceId` moves only when the pass ends, so bounded fetches never leave gaps.
 - `x/chat:keyContext` returns the Juicebox recovery config for the user's newest key and the participants' public keys (`GET /2/users/{id}/public_keys`). It never calls `POST /2/users/{id}/public_keys`, which would rotate the user's X Chat identity.
 - On the phone, `src/xchat/XChatProvider.tsx` runs X's Chat XDK in a hidden WebView (`assets/xchat/engine.html`, rebuilt by `npm run x:chat-engine`). It is mounted by `app/x-chat/_layout.tsx`. The passcode recovers the private key through Juicebox in that WebView; the key and the plaintext stay in its memory and are gone when the user locks X Chat or leaves its screens.
 - Face ID or fingerprint unlock is on by default: after the first passcode entry the passcode is kept in the iOS Keychain or Android Keystore behind biometrics (`expo-secure-store`, this device only). The switch in X Chat settings turns it off and deletes the saved passcode.

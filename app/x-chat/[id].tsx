@@ -1,8 +1,7 @@
 import { Text } from "@/components/ui/text";
 import { api } from "@/convex/_generated/api";
-import type { Conversation } from "@/src/connectors/types";
 import { useXChatMessages } from "@/src/xchat";
-import { usePaginatedQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, TextInput, View } from "react-native";
@@ -11,15 +10,15 @@ import { FlatList, KeyboardAvoidingView, Platform, Pressable, TextInput, View } 
 // app's conversation screen uses useXChatMessages (src/xchat/README.md).
 export default function XChatThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { results } = usePaginatedQuery(api.conversations.list, {}, { initialNumItems: 50 });
-  const conversation = (results as Conversation[] | undefined)?.find((c) => c.id === id);
+  const conversation = useQuery(api.x.chat.conversation, { conversationId: id });
   const chat = useXChatMessages(conversation);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const name = conversation?.title ?? conversation?.participants.map((p) => p.displayName || `@${p.handle}`).join(", ");
 
   if (!chat) {
-    return <Text className="p-6 text-muted-foreground">{conversation ? "Not an X Chat conversation." : "Loading\u2026"}</Text>;
+    return <Text className="p-6 text-muted-foreground">{conversation === undefined ? "Loading\u2026" : conversation === null ? "Conversation not found." : "Not an encrypted X Chat conversation."}</Text>;
   }
   if (chat.status !== "unlocked") {
     return (
@@ -37,9 +36,12 @@ export default function XChatThreadScreen() {
     const text = draft.trim();
     if (!text) return;
     setSending(true);
+    setSendError(null);
     try {
       await chat.send(text);
       setDraft("");
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : String(err));
     } finally {
       setSending(false);
     }
@@ -48,7 +50,7 @@ export default function XChatThreadScreen() {
   return (
     <KeyboardAvoidingView className="flex-1 bg-background" behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={90}>
       <Stack.Screen options={{ title: name ?? "" }} />
-      {chat.error ? <Text className="p-3 text-destructive text-sm">{chat.error}</Text> : null}
+      {sendError || chat.error ? <Text className="p-3 text-destructive text-sm">{sendError ?? chat.error}</Text> : null}
       <FlatList
         inverted
         data={chat.messages ?? []}

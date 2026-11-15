@@ -55,7 +55,8 @@ export const syncAccount = internalAction({
     const meId = account.me.id.slice(2);
     const x = connect(ctx, account);
     try {
-      const res = await x.client.conversations(x.session(), { meId, since: loaded.state?.chatSince, limit: CHAT_LIST_LIMIT });
+      const state = loaded.state;
+      const res = await x.client.conversations(x.session(), { meId, since: state?.chatSince, cursor: state?.chatCursor, limit: CHAT_LIST_LIMIT });
       const stale = new Set(
         await ctx.runQuery(internal.x.chat.staleConversations, {
           userId: account.userId,
@@ -64,7 +65,15 @@ export const syncAccount = internalAction({
       );
       const conversations = res.conversations.filter((c) => stale.has(c.id));
       if (conversations.length) await ctx.runMutation(internal.ingest.upsertConversations, { accountId, conversations });
-      if (res.newestAt) await ctx.runMutation(internal.x.state.saveState, { accountId, xUserId: account.me.id, patch: { chatSince: res.newestAt } });
+      // chatSince moves only when a pass has reached it, so conversations on
+      // pages the budget or limit cut off are listed by the next run.
+      const passNewestAt = [state?.chatPassNewestAt, res.newestAt].filter((t): t is string => Boolean(t)).sort().at(-1);
+      if (res.caughtUp) {
+        const chatSince = passNewestAt ?? state?.chatSince;
+        await ctx.runMutation(internal.x.state.saveState, { accountId, xUserId: account.me.id, patch: chatSince ? { chatSince } : {}, endChatPass: true });
+      } else {
+        await ctx.runMutation(internal.x.state.saveState, { accountId, xUserId: account.me.id, patch: { chatCursor: res.nextCursor, chatPassNewestAt: passNewestAt } });
+      }
       await x.saving();
     } catch (err) {
       await x.saving().catch(() => undefined);
@@ -91,7 +100,7 @@ export const staleConversations = internalQuery({
         .query("conversations")
         .withIndex("by_userId_and_id", (q) => q.eq("userId", userId).eq("id", id))
         .unique();
-      if (!existing || existing.unavailable || existing.updatedAt < new Date(updatedAt).toISOString()) stale.push(id);
+      if (!existing || existing.unavailable || existing.updatedAt < Date.parse(updatedAt)) stale.push(id);
     }
     return stale;
   },
@@ -104,13 +113,22 @@ export const fetchEvents = action({
   returns: v.object({ fetched: v.number(), caughtUp: v.boolean() }),
   handler: async (ctx, { conversationId, limit }): Promise<{ fetched: number; caughtUp: boolean }> => {
     const { account, meId, x } = await forUser(ctx, conversationId);
-    const afterId: string | null = await ctx.runQuery(internal.x.chat.newestEventId, { userId: account.userId, xUserId: account.me!.id, conversationId });
+    const state: Doc<"x_chat_cursors"> | null = await ctx.runQuery(internal.x.chat.eventCursor, { userId: account.userId, xUserId: account.me!.id, conversationId });
     try {
       const res = await x.client.events(x.session(), conversationId as `x:${string}`, {
         meId,
-        afterId: afterId ?? undefined,
+        afterId: state?.sinceId,
+        cursor: state?.cursor,
         limit: Math.max(1, Math.min(limit ?? EVENTS_PER_FETCH, EVENTS_PER_FETCH)),
       });
+      // A pass runs from the newest event down to sinceId (or the start of the
+      // chat) across fetches; sinceId moves to the pass's newest event only
+      // when it is done, so a bounded fetch never leaves a gap.
+      const newest = res.events.map((e) => e.id).sort((a, b) => (eventSortKey(a) < eventSortKey(b) ? 1 : -1))[0];
+      const passNewestId = state?.passNewestId ?? newest;
+      const cursor = res.caughtUp
+        ? { sinceId: passNewestId ?? state?.sinceId }
+        : { sinceId: state?.sinceId, cursor: res.nextCursor, passNewestId };
       const keys = await Promise.all(res.keyEvents.map(async (encodedEvent) => ({ eventId: `key:${await sha256(encodedEvent)}`, encodedEvent })));
       await ctx.runMutation(internal.x.chat.storeEvents, {
         userId: account.userId,
@@ -118,6 +136,7 @@ export const fetchEvents = action({
         conversationId,
         events: res.events,
         keys,
+        cursor,
       });
       return { fetched: res.events.length, caughtUp: res.caughtUp };
     } finally {
@@ -126,19 +145,14 @@ export const fetchEvents = action({
   },
 });
 
-export const newestEventId = internalQuery({
+export const eventCursor = internalQuery({
   args: { userId: v.id("users"), xUserId: v.string(), conversationId: v.string() },
-  returns: v.union(v.string(), v.null()),
-  handler: async (ctx, { userId, xUserId, conversationId }) => {
-    const newest = await ctx.db
-      .query("x_chat_events")
-      .withIndex("by_userId_and_conversationId_and_kind_and_sortKey", (q) =>
-        q.eq("userId", userId).eq("conversationId", conversationId).eq("kind", "event"),
-      )
-      .order("desc")
-      .filter((q) => q.eq(q.field("xUserId"), xUserId))
-      .first();
-    return newest?.eventId ?? null;
+  handler: async (ctx, { userId, xUserId, conversationId }): Promise<Doc<"x_chat_cursors"> | null> => {
+    const row = await ctx.db
+      .query("x_chat_cursors")
+      .withIndex("by_userId_and_conversationId", (q) => q.eq("userId", userId).eq("conversationId", conversationId))
+      .unique();
+    return row && row.xUserId === xUserId ? row : null;
   },
 });
 
@@ -157,9 +171,17 @@ export const storeEvents = internalMutation({
       }),
     ),
     keys: v.array(v.object({ eventId: v.string(), encodedEvent: v.string() })),
+    cursor: v.object({ sinceId: v.optional(v.string()), cursor: v.optional(v.string()), passNewestId: v.optional(v.string()) }),
   },
   returns: v.null(),
-  handler: async (ctx, { userId, xUserId, conversationId, events, keys }) => {
+  handler: async (ctx, { userId, xUserId, conversationId, events, keys, cursor }) => {
+    const position = await ctx.db
+      .query("x_chat_cursors")
+      .withIndex("by_userId_and_conversationId", (q) => q.eq("userId", userId).eq("conversationId", conversationId))
+      .unique();
+    const next = { xUserId, sinceId: cursor.sinceId, cursor: cursor.cursor, passNewestId: cursor.passNewestId };
+    if (position) await ctx.db.replace(position._id, { userId, conversationId, ...next });
+    else await ctx.db.insert("x_chat_cursors", { userId, conversationId, ...next });
     const rows = [
       ...events.map(({ id, ...rest }) => ({ kind: "event" as const, eventId: id, sortKey: eventSortKey(id), ...rest })),
       ...keys.map(({ eventId, encodedEvent }) => ({ kind: "key" as const, eventId, sortKey: "", encodedEvent })),
@@ -172,6 +194,18 @@ export const storeEvents = internalMutation({
       if (!existing) await ctx.db.insert("x_chat_events", { userId, xUserId, conversationId, ...row });
     }
     return null;
+  },
+});
+
+// One of the caller's conversations by id, or null.
+export const conversation = query({
+  args: { conversationId: v.string() },
+  handler: async (ctx, { conversationId }) => {
+    const userId = await requireUserId(ctx);
+    return await ctx.db
+      .query("conversations")
+      .withIndex("by_userId_and_id", (q) => q.eq("userId", userId).eq("id", conversationId))
+      .unique();
   },
 });
 
@@ -256,13 +290,13 @@ export const accountFor = internalQuery({
   },
 });
 
-// Deletes stored ciphertext whose X account is gone or now belongs to another
-// X identity, a batch at a time.
+// Deletes stored ciphertext and sync positions whose X account is gone or
+// now belongs to another X identity, a batch at a time.
 export const purgeOrphans = internalMutation({
-  args: { cursor: v.optional(v.string()) },
+  args: { cursor: v.optional(v.string()), table: v.optional(v.union(v.literal("x_chat_events"), v.literal("x_chat_cursors"))) },
   returns: v.null(),
-  handler: async (ctx, { cursor }) => {
-    const page = await ctx.db.query("x_chat_events").paginate({ numItems: PURGE_BATCH, cursor: cursor ?? null });
+  handler: async (ctx, { cursor, table = "x_chat_events" }) => {
+    const page = await ctx.db.query(table).paginate({ numItems: PURGE_BATCH, cursor: cursor ?? null });
     const owners = new Map<Id<"users">, string | null>();
     for (const row of page.page) {
       if (!owners.has(row.userId)) {
@@ -274,7 +308,8 @@ export const purgeOrphans = internalMutation({
       }
       if (owners.get(row.userId) !== row.xUserId) await ctx.db.delete(row._id);
     }
-    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.x.chat.purgeOrphans, { cursor: page.continueCursor });
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.x.chat.purgeOrphans, { cursor: page.continueCursor, table });
+    else if (table === "x_chat_events") await ctx.scheduler.runAfter(0, internal.x.chat.purgeOrphans, { table: "x_chat_cursors" });
     return null;
   },
 });
@@ -296,17 +331,27 @@ async function forUser(
   return { account, meId: account.me.id.slice(2), participantIds, x: connect(ctx, account) };
 }
 
+// A refreshed session is saved only while the account still holds the
+// session this action started with; if the user reconnected meanwhile, the
+// save is refused and the action fails instead of overwriting the new one.
 function connect(ctx: ActionCtx, account: Doc<"connectedAccounts">) {
   let session = account.session as Session;
   let saving: Promise<unknown> = Promise.resolve();
+  let sessionVersion = account.sessionVersion ?? 0;
   const client = new XChatClient({
     config: xConfigFromEnv(process.env),
     usage: convexUsageStore(ctx),
     onSessionRefreshed: (next) => {
       session = next;
-      saving = saving.then(() =>
-        ctx.runMutation(internal.accounts.saveSession, { accountId: account._id, session: next as Doc<"connectedAccounts">["session"] }),
-      );
+      saving = saving.then(async () => {
+        const result = await ctx.runMutation(internal.accounts.saveSession, {
+          accountId: account._id,
+          session: next as Doc<"connectedAccounts">["session"],
+          expectedVersion: sessionVersion,
+        });
+        if (!result.saved) throw new Error("X was reconnected while this X Chat request ran; try again");
+        sessionVersion = result.sessionVersion;
+      });
     },
   });
   return { client, session: () => session, saving: () => saving };

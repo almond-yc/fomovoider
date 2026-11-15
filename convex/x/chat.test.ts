@@ -166,3 +166,54 @@ describe("x chat events", () => {
     expect(await rows()).toHaveLength(0);
   });
 });
+
+describe("x chat passes", () => {
+  test("a bounded fetch leaves a cursor that the next fetch continues, so no history is skipped", async () => {
+    const pages = stubX({
+      ...defaultRoutes,
+      [`GET /2/chat/conversations/${ALICE}/events`]: (url: URL) => {
+        const max = Number(url.searchParams.get("max_results"));
+        if (url.searchParams.get("pagination_token") === "p2") return json({ data: eventsFixture.data.slice(2), meta: { has_more: false } });
+        return json({ data: eventsFixture.data.slice(0, max), meta: { conversation_key_events: eventsFixture.meta.conversation_key_events, has_more: true, next_token: "p2" } });
+      },
+    });
+    const { t, accountId, as, rows } = await setup();
+    await t.action(internal.x.chat.syncAccount, { accountId });
+
+    expect(await as.action(api.x.chat.fetchEvents, { conversationId: ONE_TO_ONE, limit: 2 })).toEqual({ fetched: 2, caughtUp: false });
+    let [cursor] = await t.run((ctx) => ctx.db.query("x_chat_cursors").collect());
+    expect(cursor).toMatchObject({ cursor: "p2", passNewestId: "2122034395345846272" });
+    expect(cursor!.sinceId).toBeUndefined();
+
+    expect(await as.action(api.x.chat.fetchEvents, { conversationId: ONE_TO_ONE })).toEqual({ fetched: 1, caughtUp: true });
+    [cursor] = await t.run((ctx) => ctx.db.query("x_chat_cursors").collect());
+    expect(cursor).toMatchObject({ sinceId: "2122034395345846272" });
+    expect(cursor!.cursor).toBeUndefined();
+    expect((await rows()).filter((r) => r.kind === "event")).toHaveLength(3);
+
+    expect(await as.action(api.x.chat.fetchEvents, { conversationId: ONE_TO_ONE })).toEqual({ fetched: 0, caughtUp: true });
+    expect(pages.filter((c) => c.path.endsWith("/events")).map((c) => c.url.searchParams.get("pagination_token"))).toEqual([null, "p2", null]);
+  });
+
+  test("the conversation list only moves chatSince once a pass reaches it", async () => {
+    vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "2");
+    stubX({
+      ...defaultRoutes,
+      "GET /2/chat/conversations": (url: URL) =>
+        json(url.searchParams.get("pagination_token") === "c2" ? { data: [], meta: { has_more: false } } : { ...structuredClone(conversationsFixture), meta: { has_more: true, next_token: "c2" } }),
+    });
+    const { t, accountId } = await setup();
+    const state = () => t.run((ctx) => ctx.db.query("x_sync_state").first());
+    await t.action(internal.x.chat.syncAccount, { accountId });
+    const first = await state();
+    expect(first).toMatchObject({ chatCursor: "c2", chatPassNewestAt: "2026-11-15T18:30:00.000Z" });
+    expect(first?.chatSince).toBeUndefined();
+
+    vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "10");
+    await t.action(internal.x.chat.syncAccount, { accountId });
+    const done = await state();
+    expect(done?.chatCursor).toBeUndefined();
+    expect(done?.chatPassNewestAt).toBeUndefined();
+    expect(done?.chatSince).toBe("2026-11-15T18:30:00.000Z");
+  });
+});

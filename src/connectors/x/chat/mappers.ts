@@ -1,5 +1,6 @@
 import type { Conversation, Id, Message, Person } from "../../types";
 import type { ChatEventRow } from "./client";
+import { eventSortKey } from "./ids";
 
 // The part of a Chat XDK decrypted Event the mappers read. The device sends
 // these from its decrypt step; nothing here imports the XDK.
@@ -28,7 +29,7 @@ export function chatMessages(
   ctx: { conversationId: Id; meId: string; people: Map<string, Person> },
 ): Message[] {
   const messages = new Map<string, Message>();
-  const edits: { target: string; text: string }[] = [];
+  const edits: { order: string; target: string; text: string }[] = [];
   rows.forEach((row, i) => {
     const outcome = outcomes[i];
     if (!outcome) return;
@@ -40,7 +41,7 @@ export function chatMessages(
     if (event.type !== "message") return;
     const content = event.content ?? {};
     if (content.contentType === "edit") {
-      if (content.targetMessageSequenceId && content.updatedText !== undefined) edits.push({ target: content.targetMessageSequenceId, text: content.updatedText });
+      if (content.targetMessageSequenceId && content.updatedText !== undefined) edits.push({ order: eventSortKey(row.id), target: content.targetMessageSequenceId, text: content.updatedText });
       return;
     }
     if (content.contentType !== undefined && content.contentType !== "text") return;
@@ -50,7 +51,7 @@ export function chatMessages(
     const sentAt = typeof event.createdAtMsec === "number" ? new Date(event.createdAtMsec).toISOString() : undefined;
     messages.set(row.id, message(row, ctx, event.senderId ?? row.senderId, text || ATTACHMENT_TEXT, sentAt));
   });
-  for (const edit of edits) {
+  for (const edit of edits.sort((a, b) => (a.order < b.order ? -1 : 1))) {
     const target = messages.get(edit.target);
     if (target && target.text !== UNDECRYPTABLE_TEXT) target.text = edit.text;
   }

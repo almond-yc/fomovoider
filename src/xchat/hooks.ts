@@ -1,8 +1,9 @@
 import { api } from "@/convex/_generated/api";
 import { useAction, useConvex, useQuery } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Conversation, Message, Person } from "../connectors/types";
-import { type ChatEventRow, type ChatKeyContext, type ChatSendPayload, type DecryptOutcome, chatMessages, unlockedConversation } from "../connectors/x/chat";
+import type { Id, Person } from "../connectors/types";
+import { type ChatEventRow, type ChatKeyContext, type ChatSendPayload, type DecryptOutcome, chatMessages } from "../connectors/x/chat";
+import { type InboxConversation, type InboxMessage, isLockedXChat, toInboxMessage, unlockedInboxRow } from "./inbox";
 import { type XChatContextValue, useOptionalXChat } from "./XChatProvider";
 
 const PREVIEWS = 10;
@@ -15,12 +16,8 @@ const NO_ENGINE: Pick<XChatContextValue, "status" | "meId" | "call" | "addSignin
   addSigningKeys: () => Promise.reject(new Error("Mount <XChatProvider> to use X Chat")),
 };
 
-export function isLockedXChat(conversation: Conversation | undefined | null): boolean {
-  return conversation?.platform === "x" && conversation.unavailable?.reason === "locked";
-}
-
-function peopleOf(conversation: Conversation, me: Person | undefined): Map<string, Person> {
-  const people = new Map(conversation.participants.map((p) => [p.id.slice(2), p]));
+function peopleOf(conversation: InboxConversation, me: Person | undefined): Map<string, Person> {
+  const people = new Map(conversation.participants.map((p) => [p.id.slice(2), p as Person]));
   if (me) people.set(me.id.slice(2), me);
   return people;
 }
@@ -32,7 +29,7 @@ function useMe(): Person | undefined {
 
 // Messages of one X Chat conversation, decrypted on this phone. Null for any
 // conversation that isn't a locked X Chat row (use the shared messages query).
-export function useXChatMessages(conversation: Conversation | undefined | null) {
+export function useXChatMessages(conversation: InboxConversation | undefined | null) {
   const chat = useOptionalXChat() ?? NO_ENGINE;
   const me = useMe();
   const locked = isLockedXChat(conversation);
@@ -41,7 +38,7 @@ export function useXChatMessages(conversation: Conversation | undefined | null) 
   const fetchEvents = useAction(api.x.chat.fetchEvents);
   const getKeyContext = useAction(api.x.chat.keyContext);
   const sendAction = useAction(api.x.chat.send);
-  const [messages, setMessages] = useState<Message[] | null>(null);
+  const [messages, setMessages] = useState<InboxMessage[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const keysLoaded = useRef<string | null>(null);
 
@@ -71,7 +68,7 @@ export function useXChatMessages(conversation: Conversation | undefined | null) 
         keysLoaded.current = conversationId;
       }
       const outcomes = await chat.call<DecryptOutcome[]>({ op: "decrypt", conversationId, rows: stored.rows, keyEvents: stored.keyEvents });
-      if (!cancelled) setMessages(chatMessages(stored.rows, outcomes, { conversationId: conversation.id, meId: chat.meId ?? "", people: peopleOf(conversation, me) }));
+      if (!cancelled) setMessages(chatMessages(stored.rows, outcomes, { conversationId: conversation.id as Id, meId: chat.meId ?? "", people: peopleOf(conversation, me) }).map(toInboxMessage));
     })().catch((err) => !cancelled && setError(err instanceof Error ? err.message : String(err)));
     return () => {
       cancelled = true;
@@ -94,13 +91,13 @@ export function useXChatMessages(conversation: Conversation | undefined | null) 
 // The inbox with X Chat rows filled in once unlocked: the newest few locked
 // conversations get their last message decrypted on this phone. Plaintext
 // stays in memory; Convex keeps the locked row.
-export function useXChatInbox(conversations: Conversation[] | undefined): Conversation[] | undefined {
+export function useXChatInbox<C extends InboxConversation>(conversations: C[] | undefined): C[] | undefined {
   const chat = useOptionalXChat() ?? NO_ENGINE;
   const me = useMe();
   const convex = useConvex();
   const fetchEvents = useAction(api.x.chat.fetchEvents);
   const getKeyContext = useAction(api.x.chat.keyContext);
-  const [previews, setPreviews] = useState<Map<string, Message[]>>(new Map());
+  const [previews, setPreviews] = useState<Map<string, InboxMessage[]>>(new Map());
   const targets = useMemo(() => (conversations ?? []).filter(isLockedXChat).slice(0, PREVIEWS), [conversations]);
   const targetKey = targets.map((c) => `${c.id}@${c.updatedAt}`).join("|");
 
@@ -111,10 +108,13 @@ export function useXChatInbox(conversations: Conversation[] | undefined): Conver
     }
     let cancelled = false;
     (async () => {
-      const next = new Map<string, Message[]>();
+      const next = new Map<string, InboxMessage[]>();
       for (const conversation of targets) {
         let stored = await convex.query(api.x.chat.events, { conversationId: conversation.id });
-        if (stored && !stored.rows.length) {
+        // Fetch when nothing is cached or the row moved past the newest cached
+        // event (the cron saw new activity), so a preview is never stale.
+        const newestCached = stored?.rows[0]?.createdAt ? Date.parse(stored.rows[0].createdAt) : 0;
+        if (stored && (!stored.rows.length || conversation.updatedAt > newestCached)) {
           await fetchEvents({ conversationId: conversation.id, limit: PREVIEW_EVENTS }).catch(() => undefined);
           stored = await convex.query(api.x.chat.events, { conversationId: conversation.id });
         }
@@ -123,7 +123,7 @@ export function useXChatInbox(conversations: Conversation[] | undefined): Conver
         await chat.addSigningKeys(context.signingKeys);
         const rows: ChatEventRow[] = stored.rows;
         const outcomes = await chat.call<DecryptOutcome[]>({ op: "decrypt", conversationId: conversation.id, rows, keyEvents: stored.keyEvents });
-        next.set(conversation.id, chatMessages(rows, outcomes, { conversationId: conversation.id, meId: chat.meId ?? "", people: peopleOf(conversation, me) }));
+        next.set(conversation.id, chatMessages(rows, outcomes, { conversationId: conversation.id as Id, meId: chat.meId ?? "", people: peopleOf(conversation, me) }).map(toInboxMessage));
         if (cancelled) return;
       }
       if (!cancelled) setPreviews(next);
@@ -134,7 +134,7 @@ export function useXChatInbox(conversations: Conversation[] | undefined): Conver
   }, [chat.status, targetKey]);
 
   return useMemo(
-    () => conversations?.map((c) => (previews.has(c.id) ? unlockedConversation(c, previews.get(c.id)!) : c)),
+    () => conversations?.map((c) => (previews.has(c.id) ? unlockedInboxRow(c, previews.get(c.id)!) : c)),
     [conversations, previews],
   );
 }

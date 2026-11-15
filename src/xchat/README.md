@@ -1,6 +1,6 @@
 # X Chat on the phone
 
-Encrypted X Chat conversations, decrypted on this phone and returned as contract `Conversation` and `Message` objects (`src/connectors/types.ts`), so the Chats tab can merge them with every other platform. Convex only ever holds ciphertext; see `convex/x/README.md`, "X Chat".
+Encrypted X Chat conversations, decrypted on this phone and returned in the same shape as `api.conversations.list` and `api.messages.list` rows: the contract `Conversation` and `Message` (`src/connectors/types.ts`) with dates as epoch milliseconds, per `convex/README.md`. The types are `InboxConversation` and `InboxMessage`. Decrypted X Chat rows therefore merge with every other platform's rows as they are. Convex only ever holds ciphertext; see `convex/x/README.md`, "X Chat".
 
 ## Using it from the Chats tab
 
@@ -10,7 +10,7 @@ Encrypted X Chat conversations, decrypted on this phone and returned as contract
 ```tsx
 import { isLockedXChat, useXChatInbox, XCHAT_UNLOCK_HREF } from "@/src/xchat";
 
-const merged = useXChatInbox(conversations); // same list, same order
+const merged = useXChatInbox(conversations); // conversations.list rows in, same rows out
 // Locked X Chat rows keep unavailable: { reason: "locked" } and no lastMessage.
 // Once the user unlocks, the newest 10 get their lastMessage decrypted and
 // unavailable removed. Re-sort by updatedAt if you sort client-side.
@@ -22,10 +22,10 @@ const onPress = (c) => (isLockedXChat(c) ? router.push(XCHAT_UNLOCK_HREF) : open
 | Field | |
 | --- | --- |
 | `status` | `"loading" \| "locked" \| "unlocking" \| "unlocked"` |
-| `messages` | `Message[] \| null`, newest first; null until decrypted |
+| `messages` | `InboxMessage[] \| null`, newest first; null until decrypted |
 | `error` | `string \| null` |
 | `send(text)` | Encrypts on the phone, then sends through Convex. Throws while locked. |
-| `refresh()` | Fetches the next events from X (10 per call, inside the daily budget). |
+| `refresh()` | Fetches up to 10 more events from X inside the daily budget: newer ones first, then older history, resuming where the last fetch stopped. |
 
 4. `useOptionalXChat()` gives the lock state (`status`, `error`, `lock()`) for a lock/unlock control, or `null` without a provider.
 

@@ -119,6 +119,15 @@ describe("XChatClient.events", () => {
 });
 
 describe("XChatClient.keyContext", () => {
+  it("refuses, without calling X or spending, when the budget can't cover every participant", async () => {
+    const { x, usage, client, session } = setup({ dailyChatEventReadBudget: 1 });
+    await expect(client.keyContext(session, { meId: ME_ID, participantIds: [ALICE, BOB] })).rejects.toMatchObject({ error: { kind: "budget_exhausted" } });
+    expect(x.calls).toHaveLength(0);
+    x.on("GET", `/2/users/${ME_ID}/public_keys`, { body: clone(keysMe) });
+    expect((await client.keyContext(session, { meId: ME_ID, participantIds: [] })).meId).toBe(ME_ID);
+    expect(await usage.used(`x:${ME_ID}:chatEventReads:${new Date(NOW).toISOString().slice(0, 10)}`)).toBe(1);
+  });
+
   it("returns the newest own key record with its Juicebox config and everyone's signing keys", async () => {
     const { x, client, session } = setup();
     x.on("GET", `/2/users/${ME_ID}/public_keys`, { body: clone(keysMe) });

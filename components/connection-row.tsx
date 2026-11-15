@@ -59,7 +59,8 @@ export function ConnectionRow({
       else throw new Error('Web sign-in is not supported yet.');
       if (!connector.savesSession) {
         await convex.mutation(api.accounts.connect, { session });
-        if (connector.sync) await convex.mutation(connector.sync, {});
+        const started = connector.sync ? await convex.mutation(connector.sync, {}) : true;
+        if (started === false) setNote("The first sync couldn't start yet. Tap Sync now in a few minutes.");
       }
       setAttempt({ state: 'idle' });
     } catch (err) {
@@ -135,9 +136,12 @@ export function ConnectionRow({
   }
 
   const links: { label: string; onPress: () => void }[] = [];
-  if (variant === 'settings' && account && !busy) {
-    if (broken && connector.login) links.push({ label: 'Reconnect', onPress: connect });
-    if (account.status === 'active' && connector.sync) links.push({ label: 'Sync now', onPress: sync });
+  if (account && !busy) {
+    if (variant === 'settings' && broken && connector.login) links.push({ label: 'Reconnect', onPress: connect });
+    if ((account.status === 'active' || account.status === 'pending') && connector.sync) {
+      links.push({ label: 'Sync now', onPress: sync });
+    }
+    if (variant === 'connect') links.push({ label: 'Disconnect', onPress: disconnect });
   }
 
   return (

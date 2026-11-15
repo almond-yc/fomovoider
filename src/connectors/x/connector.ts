@@ -17,7 +17,7 @@ import {
 import type { XDmEvent, XListResponse, XTweet, XUser } from "./api-types";
 import { OAuthClient, type OAuthSession, type PkceCrypto, webCrypto } from "./auth";
 import { type BudgetKind, DailyBudget, MemoryUsageStore, type UsageStore } from "./budget";
-import type { XConfig } from "./config";
+import { type XConfig, dailyBudgetLimits } from "./config";
 import { DM_EVENT_FIELDS, DM_EXPANSIONS, DM_USER_FIELDS, MAX_RESULTS, MEDIA_FIELDS, POST_EXPANSIONS, POST_FIELDS, USER_FIELDS, paths } from "./endpoints";
 import { type CallContext, XHttp, problemSlug, xCause } from "./http";
 import { XMapper, compareXIds, mapPerson, permalink, xId } from "./mappers";
@@ -123,7 +123,7 @@ export class XConnector implements Connector {
       onRefreshed: (session) => this.onSessionRefreshed?.(session),
     });
     this.budget = new DailyBudget(
-      { postReads: opts.config.dailyPostReadBudget, dmEventReads: opts.config.dailyDmEventReadBudget, writes: opts.config.dailyWriteBudget },
+      dailyBudgetLimits(opts.config),
       opts.usage ?? new MemoryUsageStore(),
       this.now,
     );

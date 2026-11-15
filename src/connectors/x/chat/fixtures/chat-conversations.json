@@ -1,0 +1,47 @@
+{
+  "data": [
+    {
+      "id": "1234567890-2244994945",
+      "type": "OneToOne",
+      "updated_at": "2026-11-15T18:30:00.000Z",
+      "participant_ids": [
+        "2244994945",
+        "1234567890"
+      ],
+      "unread": true,
+      "newest_event_id": "2122034395345846272"
+    },
+    {
+      "id": "g1987000000000000000",
+      "type": "Group",
+      "created_at": "2026-11-01T10:00:00.000Z",
+      "member_ids": [
+        "2244994945",
+        "1234567890",
+        "987654321"
+      ],
+      "group_name": "ZW5jcnlwdGVkLXRpdGxl",
+      "newest_event_id": "2120807561425846272"
+    }
+  ],
+  "includes": {
+    "users": [
+      {
+        "id": "1234567890",
+        "username": "alice",
+        "name": "Alice",
+        "profile_image_url": "https://pbs.twimg.com/profile_images/1/alice.jpg",
+        "receives_your_chat": "encrypted"
+      },
+      {
+        "id": "987654321",
+        "username": "bob",
+        "name": "Bob"
+      }
+    ]
+  },
+  "meta": {
+    "result_count": 2,
+    "has_more": false
+  }
+}

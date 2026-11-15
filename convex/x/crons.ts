@@ -5,4 +5,6 @@ import { internal } from "../_generated/api";
 // keeps spend under the $20 of free credits a month (README.md).
 export function registerXCrons(crons: Crons) {
   crons.interval("x:sync accounts", { hours: 6 }, internal.x.sync.syncAll, {});
+  // X Chat: lists encrypted conversations as locked inbox rows (chat.ts).
+  crons.interval("x:sync chat conversations", { hours: 6 }, internal.x.chat.syncAll, {});
 }

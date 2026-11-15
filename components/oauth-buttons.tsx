@@ -27,21 +27,22 @@ export function OAuthButtons() {
     try {
       if (provider === 'anonymous') {
         await signIn('anonymous');
-        return;
+      } else {
+        const redirectTo = makeRedirectUri();
+        const { redirect } = await signIn(provider, { redirectTo });
+        // On web the browser is now leaving for the provider: keep the buttons disabled.
+        if (Platform.OS === 'web' && redirect) return;
+        if (redirect) {
+          const result = await openAuthSessionAsync(redirect.toString(), redirectTo);
+          const code =
+            result.type === 'success' ? Linking.parse(result.url).queryParams?.code : undefined;
+          if (typeof code === 'string') await signIn(provider, { code });
+        }
       }
-      const redirectTo = makeRedirectUri();
-      const { redirect } = await signIn(provider, { redirectTo });
-      // On web the browser is already on its way to the provider.
-      if (Platform.OS === 'web' || !redirect) return;
-      const result = await openAuthSessionAsync(redirect.toString(), redirectTo);
-      if (result.type !== 'success') return;
-      const code = Linking.parse(result.url).queryParams?.code;
-      if (typeof code === 'string') await signIn(provider, { code });
     } catch {
       setError("Couldn't sign in. Please try again.");
-    } finally {
-      if (Platform.OS !== 'web' || provider === 'anonymous') setPending(null);
     }
+    setPending(null);
   }
 
   return (

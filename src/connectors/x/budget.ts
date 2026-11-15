@@ -1,4 +1,4 @@
-export type BudgetKind = "postReads" | "dmEventReads" | "writes";
+export type BudgetKind = "postReads" | "dmEventReads" | "chatEventReads" | "writes";
 
 export interface UsageStore {
   used(key: string): Promise<number>;

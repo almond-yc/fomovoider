@@ -73,6 +73,7 @@ export const testConfig: XConfig = {
   clientSecret: "test-client-secret",
   dailyPostReadBudget: 1000,
   dailyDmEventReadBudget: 1000,
+  dailyChatEventReadBudget: 1000,
   dailyWriteBudget: 100,
 };
 

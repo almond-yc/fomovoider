@@ -198,7 +198,7 @@ function toConnectorError(err: unknown): ConnectorError {
   return { kind: "platform", message: err instanceof Error ? err.message : String(err) };
 }
 
-function convexUsageStore(ctx: ActionCtx): UsageStore {
+export function convexUsageStore(ctx: ActionCtx): UsageStore {
   return {
     used: (key) => ctx.runQuery(internal.x.state.usageUsed, { key }),
     reserve: (key, amount, limit) => ctx.runMutation(internal.x.state.usageReserve, { key, amount, limit }),

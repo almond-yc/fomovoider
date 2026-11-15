@@ -19,6 +19,22 @@ The X sync for Fomovoider. It runs the connector core in `src/connectors/x/` (of
 - `x_sync_state`: per account, the DM sync position.
 - `x_sync_locks`: per account, the sync lease and the last app request.
 - `x_usage`: the connector's daily budget counters, reserved atomically in a mutation.
+- `x_chat_events`: encrypted X Chat events and conversation key changes, stored exactly as X sent them (ciphertext only).
+
+## X Chat (encrypted DMs)
+
+X Chat messages are end-to-end encrypted with keys that only the user's X Chat passcode unlocks. Decryption happens on the phone; Convex only moves ciphertext.
+
+- `crons.ts` runs `x/chat:syncAll` every 6 hours. `syncAccount` lists up to `CHAT_LIST_LIMIT` conversations (`GET /2/chat/conversations`) and upserts each as a normal inbox row with `unavailable: { reason: "locked" }` and no message text. `x_sync_state.chatSince` remembers the newest conversation seen.
+- When the user opens a conversation, the app calls `x/chat:fetchEvents` (`GET /2/chat/conversations/{id}/events`, `EVENTS_PER_FETCH` per call) and reads the stored rows reactively through `x/chat:events`.
+- `x/chat:keyContext` returns the Juicebox recovery config for the user's newest key and the participants' public keys (`GET /2/users/{id}/public_keys`). It never calls `POST /2/users/{id}/public_keys`, which would rotate the user's X Chat identity.
+- On the phone, `src/xchat/XChatProvider.tsx` runs X's Chat XDK in a hidden WebView (`assets/xchat/engine.html`, rebuilt by `npm run x:chat-engine`). It is mounted by `app/x-chat/_layout.tsx`. The passcode recovers the private key through Juicebox in that WebView; the key and the plaintext stay in its memory and are gone when the user locks X Chat or leaves its screens.
+- Face ID or fingerprint unlock is on by default: after the first passcode entry the passcode is kept in the iOS Keychain or Android Keystore behind biometrics (`expo-secure-store`, this device only). The switch in X Chat settings turns it off and deletes the saved passcode.
+- `x/chat:send` posts a message the phone already encrypted and signed (`POST /2/chat/conversations/{id}/messages`).
+- `purgeOrphans` deletes stored events whose user no longer has that X identity connected.
+- `src/connectors/x/chat/__tests__/no-secrets.test.ts` fails if code in `convex/` or `src/connectors/x/chat` ever handles a passcode, a private key or plaintext.
+
+Chat event reads come out of `chatEventReads` in the budget below.
 
 ## Env (Convex deployment)
 
@@ -26,13 +42,20 @@ The X sync for Fomovoider. It runs the connector core in `src/connectors/x/` (of
 | --- | --- |
 | `X_CLIENT_ID` | Required. |
 | `X_CLIENT_SECRET` | Only for a confidential X app. |
-| `X_DAILY_POST_READ_BUDGET`, `X_DAILY_DM_EVENT_READ_BUDGET`, `X_DAILY_WRITE_BUDGET` | Default 60, 10, 10 per X user per UTC day. |
+| `X_DAILY_BUDGET_SPLIT_USD` | Daily dollars per kind, e.g. `chatEventReads=0.30,postReads=0.20`. Kinds not named keep the default split below. |
+| `X_DAILY_POST_READ_BUDGET`, `X_DAILY_DM_EVENT_READ_BUDGET`, `X_DAILY_CHAT_EVENT_READ_BUDGET`, `X_DAILY_WRITE_BUDGET` | Counts per X user per UTC day; each one overrides the split for its kind. Defaults 20, 10, 36, 5. |
 | `X_FIXTURES` | `1` answers every X call from the connector's fixtures. Local backends only; never set it on a shared deployment. |
 
 ## Spend
 
-At X's pay-per-use prices ($0.005 per post read, $0.01 per DM event, $0.015 per write) the defaults cap one user at $0.55 a day, about $17 a month, inside the $20 free credits. Prices may change; `x_usage` shows what was used.
+The default split, per X user per UTC day (`DEFAULT_DAILY_BUDGET_SPLIT_USD` in `src/connectors/x/config.ts`):
 
-## Not in v1
+| Kind | Unit price | Share | Units |
+| --- | --- | --- | --- |
+| X Chat event reads (`chatEventReads`) | $0.010 (assumed, see below) | $0.36 | 36 |
+| Feed post reads (`postReads`) | $0.005 | $0.10 | 20 |
+| Legacy DM event reads (`dmEventReads`) | $0.010 | $0.10 | 10 |
+| Writes (`writes`, including X Chat sends) | $0.015 | $0.075 | 5 |
+| **Total** | | **$0.635** | about $19.70 in a 31-day month |
 
-Encrypted X Chat (FOMO-13).
+That stays inside the $20 free credits. X publishes no X Chat price yet, so chat event reads are budgeted at the legacy DM event price. Prices may change; `x_usage` shows what was used.

@@ -53,7 +53,7 @@ export function createFixtureFetch(): typeof fetch {
 
 export function createMockXConnector(): XConnector {
   return new XConnector({
-    config: { clientId: "mock-client-id", dailyPostReadBudget: 10_000, dailyDmEventReadBudget: 10_000, dailyWriteBudget: 10_000 },
+    config: { clientId: "mock-client-id", dailyPostReadBudget: 10_000, dailyDmEventReadBudget: 10_000, dailyChatEventReadBudget: 10_000, dailyWriteBudget: 10_000 },
     usage: new MemoryUsageStore(),
     fetch: createFixtureFetch(),
     crypto: webCrypto,

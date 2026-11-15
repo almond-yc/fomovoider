@@ -6,6 +6,7 @@ const syncStateFields = {
   dmSinceId: v.optional(v.string()),
   dmCursor: v.optional(v.string()),
   dmPassNewestId: v.optional(v.string()),
+  chatSince: v.optional(v.string()),
 };
 
 // Everything a sync needs to start: the account with its session, the feed

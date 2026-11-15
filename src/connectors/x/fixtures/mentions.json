@@ -1,0 +1,88 @@
+{
+  "data": [
+    {
+      "id": "1857000000000000007",
+      "text": "@XDevelopers @X love the new API! https://t.co/gif333",
+      "author_id": "1234567890",
+      "created_at": "2026-11-15T18:07:00.000Z",
+      "conversation_id": "1856000000000000003",
+      "in_reply_to_user_id": "2244994945",
+      "edit_history_tweet_ids": [
+        "1857000000000000007"
+      ],
+      "referenced_tweets": [
+        {
+          "type": "replied_to",
+          "id": "1856000000000000003"
+        }
+      ],
+      "attachments": {
+        "media_keys": [
+          "16_1857000000000000102"
+        ]
+      },
+      "entities": {
+        "mentions": [
+          {
+            "start": 0,
+            "end": 12,
+            "username": "XDevelopers",
+            "id": "2244994945"
+          },
+          {
+            "start": 13,
+            "end": 15,
+            "username": "X",
+            "id": "783214"
+          }
+        ],
+        "urls": [
+          {
+            "start": 34,
+            "end": 57,
+            "url": "https://t.co/gif333",
+            "expanded_url": "https://x.com/developer/status/1857000000000000007/photo/1",
+            "display_url": "pic.x.com/gif333",
+            "media_key": "16_1857000000000000102"
+          }
+        ]
+      }
+    }
+  ],
+  "includes": {
+    "users": [
+      {
+        "id": "1234567890",
+        "name": "Dev Person",
+        "username": "developer"
+      },
+      {
+        "id": "2244994945",
+        "name": "X Developers",
+        "username": "XDevelopers",
+        "profile_image_url": "https://pbs.twimg.com/profile_images/1/xdev_normal.jpg"
+      }
+    ],
+    "media": [
+      {
+        "media_key": "16_1857000000000000102",
+        "type": "animated_gif",
+        "preview_image_url": "https://pbs.twimg.com/tweet_video_thumb/party.jpg",
+        "width": 480,
+        "height": 270,
+        "variants": [
+          {
+            "content_type": "video/mp4",
+            "bit_rate": 0,
+            "url": "https://video.twimg.com/tweet_video/party.mp4"
+          }
+        ]
+      }
+    ]
+  },
+  "meta": {
+    "newest_id": "1857000000000000007",
+    "oldest_id": "1857000000000000007",
+    "result_count": 1
+  }
+}

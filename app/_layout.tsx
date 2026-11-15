@@ -1,4 +1,5 @@
 import '../global.css';
+import '@/lib/title-font';
 
 import { NAV_THEME } from '@/lib/theme';
 import { api } from '@/convex/_generated/api';

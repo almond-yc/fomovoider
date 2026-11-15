@@ -17,7 +17,7 @@ export default function ConnectScreen() {
     <SafeAreaView className="flex-1 bg-background">
       <ScrollView contentContainerClassName="pb-10">
         <View className="items-center gap-2 px-8 pb-8 pt-16">
-          <Wordmark className="text-4xl" />
+          <Wordmark className="text-2xl" />
           <Text variant="muted" className="text-center">
             Connect an account to fill your feed.
           </Text>

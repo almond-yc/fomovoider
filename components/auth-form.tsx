@@ -48,7 +48,7 @@ export function AuthForm({ flow }: { flow: 'signUp' | 'signIn' }) {
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerClassName="flex-grow justify-center gap-8 px-8 py-10" keyboardShouldPersistTaps="handled">
           <View className="items-center gap-2">
-            <Wordmark className="text-4xl" />
+            <Wordmark className="text-2xl" />
             <Text variant="muted" className="text-center">
               {signingUp ? 'Create your account.' : 'Welcome back.'}
             </Text>

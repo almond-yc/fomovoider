@@ -1,5 +1,7 @@
-import Apple from "@auth/core/providers/apple";
-import Google from "@auth/core/providers/google";
+// Google and Apple are disabled until OAuth credentials exist; uncomment these
+// and the providers below to re-enable them (convex/README.md, "Sign-in").
+// import Apple from "@auth/core/providers/apple";
+// import Google from "@auth/core/providers/google";
 import { ConvexCredentials } from "@convex-dev/auth/providers/ConvexCredentials";
 import { Password } from "@convex-dev/auth/providers/Password";
 import { convexAuth, createAccount } from "@convex-dev/auth/server";
@@ -35,21 +37,21 @@ export function isAllowedRedirect(redirectTo: string, siteUrl: string) {
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [
-    // Email and password, with no email verification yet. Whether to keep it
-    // next to Google and Apple is open (ALM-26).
+    // Email and password, with no email verification yet.
     Password,
-    Google,
-    Apple({
-      // Apple shares the name only on the first sign-in, and its default
-      // profile sets image: null, which the users table rejects.
-      profile: (appleInfo) => ({
-        id: appleInfo.sub,
-        name: appleInfo.user
-          ? `${appleInfo.user.name.firstName} ${appleInfo.user.name.lastName}`
-          : undefined,
-        email: appleInfo.email,
-      }),
-    }),
+    // Disabled until OAuth credentials exist (see the imports above).
+    // Google,
+    // Apple({
+    //   // Apple shares the name only on the first sign-in, and its default
+    //   // profile sets image: null, which the users table rejects.
+    //   profile: (appleInfo) => ({
+    //     id: appleInfo.sub,
+    //     name: appleInfo.user
+    //       ? `${appleInfo.user.name.firstName} ${appleInfo.user.name.lastName}`
+    //       : undefined,
+    //     email: appleInfo.email,
+    //   }),
+    // }),
     DevAnonymous,
   ],
   callbacks: {

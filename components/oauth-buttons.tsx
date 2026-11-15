@@ -14,6 +14,13 @@ type Provider = 'apple' | 'google' | 'anonymous';
 
 const DEV_ANONYMOUS = process.env.EXPO_PUBLIC_DEV_ANONYMOUS_SIGN_IN === 'true';
 
+// Google and Apple are disabled until OAuth credentials exist; flip this with
+// the providers in convex/auth.ts.
+const OAUTH_ENABLED = false;
+
+// Whether OAuthButtons renders anything, so the sign-in form can skip its divider.
+export const HAS_ALTERNATIVE_SIGN_IN = OAUTH_ENABLED || DEV_ANONYMOUS;
+
 // Sign in with Apple or Google through Convex Auth's OAuth redirect flow
 // (see convex/README.md, "Sign-in"), plus the dev-only anonymous sign-in.
 export function OAuthButtons() {
@@ -47,30 +54,34 @@ export function OAuthButtons() {
 
   return (
     <View className="gap-3">
-      <Button
-        size="lg"
-        disabled={pending !== null}
-        onPress={() => signInWith('apple')}
-        className="bg-foreground active:bg-foreground/90">
-        {pending === 'apple' ? (
-          <ActivityIndicator className="text-background" />
-        ) : (
-          <>
-            <AppleLogo />
-            <Text className="text-background">Continue with Apple</Text>
-          </>
-        )}
-      </Button>
-      <Button size="lg" variant="outline" disabled={pending !== null} onPress={() => signInWith('google')}>
-        {pending === 'google' ? (
-          <ActivityIndicator />
-        ) : (
-          <>
-            <GoogleLogo />
-            <Text>Continue with Google</Text>
-          </>
-        )}
-      </Button>
+      {OAUTH_ENABLED && (
+        <>
+          <Button
+            size="lg"
+            disabled={pending !== null}
+            onPress={() => signInWith('apple')}
+            className="bg-foreground active:bg-foreground/90">
+            {pending === 'apple' ? (
+              <ActivityIndicator className="text-background" />
+            ) : (
+              <>
+                <AppleLogo />
+                <Text className="text-background">Continue with Apple</Text>
+              </>
+            )}
+          </Button>
+          <Button size="lg" variant="outline" disabled={pending !== null} onPress={() => signInWith('google')}>
+            {pending === 'google' ? (
+              <ActivityIndicator />
+            ) : (
+              <>
+                <GoogleLogo />
+                <Text>Continue with Google</Text>
+              </>
+            )}
+          </Button>
+        </>
+      )}
       {DEV_ANONYMOUS && (
         <Button variant="link" size="sm" disabled={pending !== null} onPress={() => signInWith('anonymous')}>
           <Text className="text-muted-foreground">

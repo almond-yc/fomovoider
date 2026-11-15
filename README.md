@@ -27,7 +27,7 @@ Fomovoider covers two platforms: X and Instagram.
 
 **On main today**
 
-- **Accounts**: sign up and sign in with email and password.
+- **Accounts**: sign up and sign in with email and password, then answer "What's slop for you?" once (editable from the Feed header). Sign in with Apple and Google is written but commented out until OAuth credentials exist.
 - **Connect**: until one platform is connected, the app shows a Connect screen instead of the tabs, with a row for X (X's own sign-in) and one for Instagram (pairing a device with a one-time code).
 - **Settings** (gear in the native header): each platform's handle, status and last sync, Sync now, Disconnect (which deletes that platform's data from Fomovoider), and Sign out.
 - **Chats tab**: the inbox and a conversation screen, with X conversations (Instagram DMs aren't synced yet), sending X DMs and replies, and pending or failed delivery shown on each message. Encrypted X Chat conversations are decrypted on the phone after the user unlocks them; Convex only stores ciphertext.
@@ -38,7 +38,6 @@ Fomovoider covers two platforms: X and Instagram.
 
 **In open pull requests**
 
-- #23: Sign in with Apple and Google, and onboarding that asks new users what counts as slop for them.
 - #25: the Feed tab on real data, with the finite feed, post state, and account notices.
 - #27: drop the `steps` login kind from the connector contract.
 - #28: let connectors pass `Media.storageId` for post media.

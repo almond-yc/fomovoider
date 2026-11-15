@@ -1,4 +1,4 @@
-import { OAuthButtons } from '@/components/oauth-buttons';
+import { HAS_ALTERNATIVE_SIGN_IN, OAuthButtons } from '@/components/oauth-buttons';
 import { Wordmark } from '@/components/wordmark';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,8 +12,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const MIN_PASSWORD = 8;
 
-// Apple and Google first, then email and password through Convex Auth's
-// Password provider.
+// Email and password through Convex Auth's Password provider, below the
+// Apple/Google and dev-only anonymous buttons when those are enabled.
 export function AuthForm({ flow }: { flow: 'signUp' | 'signIn' }) {
   const { signIn } = useAuthActions();
   const [email, setEmail] = useState('');
@@ -55,12 +55,16 @@ export function AuthForm({ flow }: { flow: 'signUp' | 'signIn' }) {
               {signingUp ? 'Create your account.' : 'Welcome back.'}
             </Text>
           </View>
-          <OAuthButtons />
-          <View className="flex-row items-center gap-3">
-            <View className="h-px flex-1 bg-border" />
-            <Text variant="muted">or</Text>
-            <View className="h-px flex-1 bg-border" />
-          </View>
+          {HAS_ALTERNATIVE_SIGN_IN && (
+            <>
+              <OAuthButtons />
+              <View className="flex-row items-center gap-3">
+                <View className="h-px flex-1 bg-border" />
+                <Text variant="muted">or</Text>
+                <View className="h-px flex-1 bg-border" />
+              </View>
+            </>
+          )}
           <View className="gap-4">
             <View className="gap-2">
               <Label nativeID="email">Email</Label>

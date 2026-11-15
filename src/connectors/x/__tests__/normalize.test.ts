@@ -208,6 +208,24 @@ describe("DM participants X didn't expand", () => {
     expect(x.callsTo("/2/users")).toHaveLength(0);
   });
 
+  it("leaves them unnamed when the lookup fails, keeping the DM page", async () => {
+    const { connector, x, session } = setup({ config: { dailyDmEventReadBudget: 10 } });
+    x.on("GET", "/2/dm_events", { body: myMessage });
+    x.on("GET", "/2/users", { status: 429, body: fixture("error-rate-limited"), headers: { "x-rate-limit-reset": "0" } });
+    const { conversations, messages } = await connector.inbox(session, { limit: 5 });
+    expect(conversations[0]!.participants[0]).toMatchObject({ id: "x:777" });
+    expect(messages).toHaveLength(1);
+    expect(await connector.remainingBudget(ME_ID, "dmEventReads")).toBe(9);
+  });
+
+  it("still fails on an expired session during the lookup", async () => {
+    const { connector, x, session } = setup({ config: { dailyDmEventReadBudget: 10 } });
+    x.on("GET", "/2/dm_events", { body: myMessage });
+    x.on("GET", "/2/users", { status: 401, body: fixture("error-unauthorized") });
+    x.on("POST", "/2/oauth2/token", { status: 400, body: fixture("token-invalid") });
+    await expect(connector.inbox(session, { limit: 5 })).rejects.toMatchObject({ error: { kind: "session_expired" } });
+  });
+
   it("leaves them unnamed when the DM budget is spent", async () => {
     const { connector, x, session } = setup({ config: { dailyDmEventReadBudget: 1 } });
     x.on("GET", "/2/dm_events", { body: myMessage });

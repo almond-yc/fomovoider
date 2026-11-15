@@ -379,7 +379,8 @@ export class XConnector implements Connector {
   // X only expands the users an event names (sender_id, participant_ids), so
   // the other person in a 1:1 conversation whose page holds only your own
   // messages comes back without a profile. Looks those users up, billed like a
-  // DM event read ($0.01 each); when the budget is spent they stay unnamed.
+  // DM event read ($0.01 each); when the budget is spent or the lookup fails
+  // they stay unnamed.
   private async missingParticipants(ctx: CallContext, meId: string, res: XListResponse<XDmEvent>): Promise<XUser[]> {
     const known = new Set([meId, ...(res.includes?.users ?? []).map((u) => u.id), ...[...this.people.values()].map((u) => u.id)]);
     const missing = new Set<string>();
@@ -400,6 +401,11 @@ export class XConnector implements Connector {
       });
       found = res.data ?? [];
       return found;
+    } catch (err) {
+      // Names are enrichment: a failed lookup leaves the participants unnamed
+      // rather than losing the DM page already read and paid for.
+      if (err instanceof ConnectorFailure && err.error.kind === "session_expired") throw err;
+      return [];
     } finally {
       await this.budget.release(meId, "dmEventReads", grant - found.length);
     }

@@ -3,6 +3,7 @@ import { THEME } from '@/lib/theme';
 import type { PlatformId } from '@/src/connectors/types';
 import { Globe } from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
+import { useId } from 'react';
 import { View } from 'react-native';
 import Svg, { Defs, G, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 
@@ -24,10 +25,11 @@ function XIcon({ dark, size }: { dark: boolean; size: number }) {
 }
 
 function InstagramIcon({ size }: { size: number }) {
+  const gradientId = 'instagram-gradient-' + useId().replace(/[^a-zA-Z0-9_-]/g, '');
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Defs>
-        <RadialGradient id="instagram-gradient" cx="7.2" cy="25.7" r="31" gradientUnits="userSpaceOnUse">
+        <RadialGradient id={gradientId} cx="7.2" cy="25.7" r="31" gradientUnits="userSpaceOnUse">
           <Stop offset="0" stopColor="#fdf497" />
           <Stop offset="0.05" stopColor="#fdf497" />
           <Stop offset="0.45" stopColor="#fd5949" />
@@ -35,7 +37,7 @@ function InstagramIcon({ size }: { size: number }) {
           <Stop offset="0.9" stopColor="#285aeb" />
         </RadialGradient>
       </Defs>
-      <Rect width={24} height={24} rx={RADIUS} fill="url(#instagram-gradient)" />
+      <Rect width={24} height={24} rx={RADIUS} fill={`url(#${gradientId})`} />
       <G transform="translate(4.8 4.8) scale(0.6)">
         <Path d={INSTAGRAM_PATH} fill="#fff" />
       </G>

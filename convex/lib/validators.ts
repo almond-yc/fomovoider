@@ -1,6 +1,6 @@
 import { v, type Infer } from "convex/values";
 
-// Mirrors the normalized types in the connector contract (draft v3).
+// Mirrors the normalized types in the connector contract (v4).
 // ISODate fields are stored as ISO-8601 UTC strings normalized with
 // Date#toISOString, so they sort and compare correctly as strings.
 
@@ -30,6 +30,20 @@ export const vRelevance = v.object({
   reasons: v.array(v.string()),
 });
 
+export const vExtracted = v.object({
+  place: v.optional(
+    v.object({ name: v.string(), lat: v.optional(v.number()), lng: v.optional(v.number()) }),
+  ),
+  event: v.optional(
+    v.object({
+      title: v.optional(v.string()),
+      startsAt: v.optional(v.string()),
+      place: v.optional(v.string()),
+    }),
+  ),
+  lifeUpdate: v.optional(v.string()),
+});
+
 const postFields = {
   id: v.string(),
   platform: vPlatform,
@@ -40,6 +54,9 @@ const postFields = {
   permalink: v.string(),
   repostedBy: v.optional(vPerson),
   replyTo: v.optional(v.object({ id: v.string(), author: v.optional(vPerson) })),
+  format: v.optional(v.union(v.literal("post"), v.literal("story"))),
+  expiresAt: v.optional(v.string()),
+  extracted: v.optional(vExtracted),
   relevance: v.optional(vRelevance),
 };
 
@@ -111,6 +128,13 @@ export const vSession = v.union(
     accessToken: v.string(),
     refreshToken: v.optional(v.string()),
     expiresAt: v.optional(v.string()),
+  }),
+  // A paired phone the connector drives; deviceId points into the connector's
+  // own device table. No secrets here.
+  v.object({
+    platform: vPlatform,
+    kind: v.literal("device"),
+    deviceId: v.string(),
   }),
 );
 

@@ -11,8 +11,10 @@ import {
   vPostFields,
   vSession,
 } from "./lib/validators";
+// Connector-owned tables: one import and one spread per connector, e.g.
+// import { instagramTables } from "./instagram/schema";
 
-export default defineSchema({
+const sharedTables = {
   // users, authSessions, authAccounts, ... from Convex Auth.
   ...authTables,
 
@@ -56,4 +58,9 @@ export default defineSchema({
       "conversationId",
       "sentAt",
     ]),
+};
+
+export default defineSchema({
+  ...sharedTables,
+  // ...instagramTables,
 });

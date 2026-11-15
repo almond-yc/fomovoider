@@ -43,27 +43,33 @@ function InstagramIcon() {
   );
 }
 
+export function platformName(platform: PlatformId) {
+  if (platform === 'x') return 'X';
+  if (platform === 'instagram') return 'Instagram';
+  return platform;
+}
+
 export function PlatformBadge({ platform }: { platform: PlatformId }) {
   const { colorScheme } = useColorScheme();
   const dark = colorScheme === 'dark';
 
   if (platform === 'x') {
     return (
-      <View accessibilityLabel="X">
+      <View accessibilityLabel={platformName(platform)}>
         <XIcon dark={dark} />
       </View>
     );
   }
   if (platform === 'instagram') {
     return (
-      <View accessibilityLabel="Instagram">
+      <View accessibilityLabel={platformName(platform)}>
         <InstagramIcon />
       </View>
     );
   }
   return (
     <View
-      accessibilityLabel={platform}
+      accessibilityLabel={platformName(platform)}
       className="items-center justify-center bg-muted"
       style={{ width: SIZE, height: SIZE, borderRadius: (RADIUS * SIZE) / 24 }}>
       <Icon as={Globe} size={10} color={THEME[dark ? 'dark' : 'light'].mutedForeground} />

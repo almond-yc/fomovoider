@@ -261,6 +261,20 @@ describe("subscriptions", () => {
     expect(error).not.toHaveBeenCalled();
   });
 
+  test("a second account of the same X user recovers the ids the first one stored", async () => {
+    const { t, accountId, rows } = await setup();
+    const second = await t.run(async (ctx) => {
+      const { _id, _creationTime, ...rest } = (await ctx.db.get(accountId))!;
+      return await ctx.db.insert("connectedAccounts", { ...rest, userId: await ctx.db.insert("users", {}) });
+    });
+    stubFetch({
+      "GET /2/activity/subscriptions": () => json({ data: [] }),
+      "POST /2/activity/subscriptions": () => json({ title: "Invalid Request", errors: [{ message: "DuplicateSubscription: exists" }] }, 400),
+    });
+    await t.action(internal.x.webhook.subscribe, { accountId: second });
+    expect((await rows("x_webhook_accounts")).find((r) => r.accountId === second)).toMatchObject({ subscriptionIds: ["s1", "s2"] });
+  });
+
   test("other create failures still fail", async () => {
     const { t, accountId } = await setup();
     stubFetch({

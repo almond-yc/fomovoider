@@ -14,7 +14,7 @@ export default function TabsLayout() {
       screenOptions={{
         headerTitleAlign: 'center',
         headerShadowVisible: false,
-        headerTitle: () => <Text className="font-title text-xl">Fomovoider</Text>,
+        headerTitle: () => <Text className="font-title text-lg">Fomovoider</Text>,
         tabBarActiveTintColor: theme.foreground,
         tabBarInactiveTintColor: theme.mutedForeground,
         tabBarLabelStyle: { fontFamily: 'Inter_500Medium' },
@@ -29,7 +29,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="chats"
         options={{
-          title: 'Chats',
+          title: 'Chat',
           tabBarIcon: ({ color, size }) => <Icon as={MessageCircle} color={color} size={size} />,
         }}
       />

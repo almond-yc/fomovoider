@@ -2,7 +2,7 @@ import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import type { vMessage } from "../lib/validators";
-import type { Infer } from "convex/values";
+import { ConvexError, type Infer } from "convex/values";
 import type { Capabilities, ConnectorError } from "../../src/connectors/types";
 
 type StoredMessage = Infer<typeof vMessage>;
@@ -23,6 +23,18 @@ export const CHAT_PLATFORMS: Record<string, ChatPlatform> = {
     capabilities: { feed: true, chats: true, sendMessage: true, sendMedia: false, reply: true },
     send: (ctx, account, conversationId, text) =>
       ctx.runAction(internal.x.send.message, { accountId: account._id, conversationId, text }),
+  },
+  telegram: {
+    capabilities: { feed: false, chats: true, sendMessage: true, sendMedia: false, reply: false },
+    send: async (ctx, account, conversationId, text) => {
+      const result = await ctx.runAction(internal.telegram.sync.send, { accountId: account._id, conversationId, text });
+      if (!result.ok) throw new ConvexError<ConnectorError>(result.error);
+      return { ...result.message, sentAt: Date.parse(result.message.sentAt) };
+    },
+    markRead: async (ctx, account, conversationId) => {
+      const result = await ctx.runAction(internal.telegram.sync.markRead, { accountId: account._id, conversationId });
+      if (!result.ok) throw new ConvexError<ConnectorError>(result.error);
+    },
   },
 };
 

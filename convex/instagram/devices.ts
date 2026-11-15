@@ -5,6 +5,8 @@ import { internalMutation, mutation, query, type MutationCtx } from "../_generat
 import { requireUserId } from "../lib/auth";
 import { PAIRING_TTL_MS, RUN_BUDGET } from "./limits";
 
+const PAIRING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
 // The app's Login { kind: "device", pair() }: creates (or re-arms) the user's
 // device and returns a one-time code the host agent redeems with
 // agent.redeemPairing. The account is connected when the agent redeems it.
@@ -26,7 +28,10 @@ async function armPairing(
   userId: Id<"users">,
   { name, timezone }: { name?: string; timezone?: string },
 ) {
-  const code = String(Math.floor(100_000 + Math.random() * 900_000));
+  // 80 random bits: redemption is unauthenticated, so the code must not be
+  // guessable within its ten-minute life.
+  const bytes = crypto.getRandomValues(new Uint8Array(10));
+  const code = [...bytes].map((b) => PAIRING_ALPHABET[b % 32]).join("").replace(/(.{5})(?=.)/g, "$1-");
   const expiresAt = Date.now() + PAIRING_TTL_MS;
   const existing = await ctx.db
     .query("instagram_devices")

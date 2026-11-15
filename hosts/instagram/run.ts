@@ -53,6 +53,7 @@ export class Session {
   private deadline: number;
   private size = { width: 390, height: 844 };
   stats = { posts: 0, storyFrames: 0, durationMs: 0 };
+  caughtUp = false;
   private started = Date.now();
 
   private budget: Budget;
@@ -243,7 +244,7 @@ export class Session {
     await dwell(2000, 3500);
     type Pending = FeedPart & { firstSeen: number; crop?: { jpeg: Buffer; width: number; height: number; fraction: number } };
     const pending = new Map<string, Pending>();
-    const order: string[] = [];
+    const flushed = new Set<string>();
     let current: string | undefined;
     let knownStreak = 0;
     let idleScreens = 0;
@@ -252,6 +253,7 @@ export class Session {
       for (const key of keys) {
         const p = pending.get(key)!;
         pending.delete(key);
+        flushed.add(key);
         if (!p.header || !p.crop) continue;
         const now = Date.now();
         const created = (p.header.age && parseAge(p.header.age, now)) || (p.age && parseAge(p.age, now)) || now;
@@ -290,28 +292,42 @@ export class Session {
       await this.submit(items);
     };
 
+    let previous: { headerValue: string; key: string }[] = [];
+    let serial = 0;
     while (this.stats.posts + pending.size < this.budget.maxPosts && this.timeLeft() > 0 && knownStreak < 3) {
-      const parts = readFeedScreen(root) ?? [];
-      let needShot: { key: string; rect: Rect; fraction: number }[] = [];
+      const carry = current ? pending.get(current)?.header?.handle : undefined;
+      const parts = readFeedScreen(root, carry) ?? [];
+      // The feed only moves up, so a header matching the previous screen's
+      // (in order) continues that post; an identical header after it, such as
+      // two "Post by alice, 2 days ago", is a new post.
+      const onScreen: { headerValue: string; key: string }[] = [];
+      let from = 0;
+      for (const part of parts) {
+        if (!part.headerValue) continue;
+        const j = previous.findIndex((s, i) => i >= from && s.headerValue === part.headerValue);
+        const key = j >= 0 ? previous[j].key : `${part.headerValue}#${serial++}`;
+        from = j >= 0 ? j + 1 : previous.length;
+        onScreen.push({ headerValue: part.headerValue, key });
+      }
+      previous = onScreen;
+      let nth = 0;
+      const needShot: { key: string; rect: Rect; fraction: number }[] = [];
       parts.forEach((part, i) => {
-        let key = part.headerValue;
-        if (!key) {
-          if (i !== 0 || !current) return;
-          key = current;
-        }
+        let key: string;
+        if (part.headerValue) key = onScreen[nth++].key;
+        else if (i === 0 && current) key = current;
+        else return;
         let p = pending.get(key);
         if (!p) {
-          if (!part.header) return;
-          if (order.includes(key)) return;
+          if (!part.header || flushed.has(key)) return;
           p = { ...part, firstSeen: Date.now() };
           pending.set(key, p);
-          order.push(key);
         }
         // Media seen apart from its header must name the same author, so a
         // neighbour's photo is never attached to this post.
         const owners = [p.header!.handle, ...p.header!.coAuthors];
         const mediaFits =
-          !!part.media && (part.headerValue === key || owners.some((h) => part.media!.label.includes(` by ${h}`)));
+          !!part.media && (!!part.headerValue || owners.some((h) => part.media!.label.includes(` by ${h}`)));
         if (mediaFits) p.media ??= part.media;
         p.caption ??= part.caption;
         p.age ??= part.age;
@@ -332,8 +348,8 @@ export class Session {
           pending.get(s.key)!.crop = { ...cropJpeg(png, s.rect, this.size.width), fraction: s.fraction };
         }
       }
-      // Posts whose header is two screens behind are complete.
-      const done = [...pending.keys()].filter((k) => k !== current && !parts.some((p) => p.headerValue === k));
+      // Posts that left the screen are complete.
+      const done = [...pending.keys()].filter((k) => k !== current && !onScreen.some((s) => s.key === k));
       await flush(done);
       if (parts.length === 0 && ++idleScreens > 3) {
         this.log("feed: left the feed screen");
@@ -347,7 +363,10 @@ export class Session {
       root = await this.screen();
     }
     await flush([...pending.keys()]);
-    this.log(`feed: ${this.stats.posts} posts`);
+    // Caught up only when the feed reached posts captured by earlier runs;
+    // stopping at the budget leaves older posts for the next run.
+    this.caughtUp = knownStreak >= 3;
+    this.log(`feed: ${this.stats.posts} posts, caught up: ${this.caughtUp}`);
   }
 
   finish() {
@@ -373,7 +392,12 @@ export async function executeRun(opts: {
       await session.stories();
       await session.feed();
     }
-    await convex.mutation(api.instagram.agent.finishRun, { token, runId: run.runId, stats: session.finish() });
+    await convex.mutation(api.instagram.agent.finishRun, {
+      token,
+      runId: run.runId,
+      stats: session.finish(),
+      caughtUp: session.caughtUp,
+    });
   } catch (err) {
     const stats = session.finish();
     if (err instanceof Tripwire) {

@@ -68,37 +68,50 @@ function alive(pid: number) {
   }
 }
 
-function lockBlocker(): string | undefined {
-  if (existsSync(LOCK)) {
-    const [owner, pid] = readFileSync(LOCK, "utf8").trim().split(/\s+/);
-    if (Number(pid) && alive(Number(pid))) return `${owner} holds the lock (pid ${pid})`;
-  }
+// Takes the lock atomically, or says who holds it. A lock whose process is
+// gone is stale and removed.
+function acquireLock(): string | undefined {
+  mkdirSync(dirname(LOCK), { recursive: true });
   if (existsSync(LAST)) {
     const [owner, at] = readFileSync(LAST, "utf8").trim().split(/\s+/);
     const since = Date.now() - Date.parse(at);
     if (owner !== OWNER && since < GAP_MS) return `${owner} was active ${Math.round(since / 1000)} s ago`;
   }
-  return undefined;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      writeFileSync(LOCK, `${OWNER} ${process.pid}\n`, { flag: "wx" });
+      return undefined;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      const [owner, pid] = readFileSync(LOCK, "utf8").trim().split(/\s+/);
+      if (Number(pid) && alive(Number(pid))) return `${owner} holds the lock (pid ${pid})`;
+      rmSync(LOCK, { force: true });
+    }
+  }
+  return "lock contention";
 }
 
-function releaseLock() {
-  rmSync(LOCK, { force: true });
-  writeFileSync(LAST, `${OWNER} ${new Date().toISOString()}\n`);
+// Removes the lock only if this process holds it; records the end of
+// Instagram activity when there was any.
+function releaseLock(active: boolean) {
+  if (existsSync(LOCK) && readFileSync(LOCK, "utf8").trim() === `${OWNER} ${process.pid}`) rmSync(LOCK);
+  if (active) writeFileSync(LAST, `${OWNER} ${new Date().toISOString()}\n`);
 }
 
 async function once(config: Config) {
-  const blocker = lockBlocker();
+  const blocker = acquireLock();
   if (blocker) return log(`waiting: ${blocker}`);
-  const convex = new ConvexHttpClient(config.url);
-  const claimed = await convex.mutation(api.instagram.agent.claimRun, { token: config.token });
-  if (claimed.kind === "paused") return log(`paused until ${new Date(claimed.until).toISOString()}: ${claimed.reason}`);
-  if (claimed.kind === "idle") return log("no run due");
-  log(`run ${claimed.runId} (${claimed.trigger})`);
-  writeFileSync(LOCK, `${OWNER} ${process.pid}\n`);
+  let active = false;
   try {
+    const convex = new ConvexHttpClient(config.url);
+    const claimed = await convex.mutation(api.instagram.agent.claimRun, { token: config.token });
+    if (claimed.kind === "paused") return log(`paused until ${new Date(claimed.until).toISOString()}: ${claimed.reason}`);
+    if (claimed.kind === "idle") return log("no run due");
+    log(`run ${claimed.runId} (${claimed.trigger})`);
+    active = true;
     await drive(config, convex, claimed);
   } finally {
-    releaseLock();
+    releaseLock(active);
   }
 }
 

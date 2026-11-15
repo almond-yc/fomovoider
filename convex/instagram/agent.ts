@@ -223,9 +223,11 @@ export const finishRun = mutation({
     stats: vRunStats,
     tripwire: v.optional(vTripwire),
     error: v.optional(v.string()),
+    // True only when the feed reached posts captured by earlier runs.
+    caughtUp: v.optional(v.boolean()),
   },
   returns: v.null(),
-  handler: async (ctx, { token, runId, stats, tripwire, error }) => {
+  handler: async (ctx, { token, runId, stats, tripwire, error, caughtUp }) => {
     const { device, accountId } = await claimedRun(ctx, token, runId);
     const now = Date.now();
     const state = tripwire ? "aborted" : error ? "failed" : "done";
@@ -251,7 +253,7 @@ export const finishRun = mutation({
     await ctx.runMutation(internal.ingest.upsertPosts, {
       accountId,
       posts: [],
-      page: { cursor: String(runId), caughtUp: true },
+      page: { cursor: String(runId), caughtUp: caughtUp ?? false },
     });
     await ctx.runMutation(internal.accounts.recordSync, { accountId });
     return null;

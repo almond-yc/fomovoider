@@ -108,6 +108,7 @@ describe("instagram device runs", () => {
       token: TOKEN,
       runId: run.runId,
       stats: { posts: 1, storyFrames: 1, durationMs: 1000 },
+      caughtUp: true,
     });
 
     const posts = await t.run((ctx) => ctx.db.query("posts").collect());

@@ -70,7 +70,9 @@ export type Rect = { x: number; y: number; width: number; height: number };
 // Cells of the main feed in screen order, grouped into posts. The first
 // group may lack a header when its header scrolled off the top: the caller
 // merges it into the post it already holds.
-export function readFeedScreen(root: Node): FeedPart[] | undefined {
+// carryHandle is the author of the post whose header scrolled off, so its
+// caption can still be recognized in the leading headerless cells.
+export function readFeedScreen(root: Node, carryHandle?: string): FeedPart[] | undefined {
   const feed = find(root, (n) => n.name === "main-feed");
   if (!feed) return undefined;
   const parts: FeedPart[] = [];
@@ -105,7 +107,7 @@ export function readFeedScreen(root: Node): FeedPart[] | undefined {
         carousel: carousel ? Number(carousel) : undefined,
       };
     }
-    const handle = current.header?.handle;
+    const handle = current.header?.handle ?? (parts[0] === current && !current.headerValue ? carryHandle : undefined);
     const caption =
       handle && !header && !media
         ? findAll(cell, (n) => n.type === "StaticText" || n.type === "Other")

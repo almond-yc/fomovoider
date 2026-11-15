@@ -7,7 +7,7 @@ export const SCOPES = ["tweet.read", "users.read", "tweet.write", "dm.read", "dm
 
 export const MAX_RESULTS = 100;
 
-export const POST_FIELDS = "created_at,conversation_id,referenced_tweets,attachments,entities,author_id,in_reply_to_user_id,note_tweet";
+export const POST_FIELDS = "created_at,conversation_id,referenced_tweets,attachments,entities,author_id,in_reply_to_user_id,note_tweet,article";
 export const POST_EXPANSIONS = "author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.author_id,in_reply_to_user_id";
 export const MEDIA_FIELDS = "type,url,preview_image_url,alt_text,width,height,duration_ms,variants";
 export const USER_FIELDS = "username,name,profile_image_url";

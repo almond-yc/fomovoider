@@ -31,6 +31,7 @@ export interface XUrlEntity {
   expanded_url?: string;
   display_url?: string;
   media_key?: string;
+  title?: string;
 }
 
 export interface XTweet {
@@ -47,6 +48,7 @@ export interface XTweet {
     urls?: XUrlEntity[];
   };
   note_tweet?: { text: string; entities?: { urls?: XUrlEntity[] } };
+  article?: { title?: string };
 }
 
 export interface XIncludes {

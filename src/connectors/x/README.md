@@ -47,6 +47,7 @@ Nothing posts on its own: `send` and `reply` run only when the app calls them, w
 - Media: photos become `image`, videos use the highest-bitrate MP4 with the thumbnail as `previewUrl` and `durationSec`, GIFs become `gif`. Alt text, width and height are kept.
 - A repost is returned as the original post with `repostedBy` set and `createdAt` set to the repost time, so the item sorts where it appeared in the feed. Media of reposted and quoted posts isn't returned: the documented expansions don't include their attachments.
 - `quoted` is one level deep. `replyTo` carries the author when X includes it.
+- `title` (contract v5) is set only from an X Article's title or a link card's headline (the URL entity's `title`), never from the author's name. Engagement counts are not requested and never appear on `Post`.
 - Messages have `isMine`. Conversations exclude the account owner from `participants`.
 - `relevance` is not set by the connector itself; the backend sync scores posts.
 - `raw` keeps the X object for debugging only.

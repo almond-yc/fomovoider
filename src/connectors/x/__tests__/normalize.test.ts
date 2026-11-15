@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Post } from "../../types";
+import type { XTweet, XUrlEntity } from "../api-types";
+import { XMapper } from "../mappers";
 import { HOME, ME_ID, MENTIONS, fixture, setup } from "./helpers";
 
 async function feedPosts(): Promise<Post[]> {
@@ -160,3 +162,25 @@ describe("DM normalization", () => {
     expect(page).toMatchObject({ caughtUp: true, cursor: "" });
   });
 });
+
+describe("post title (contract v5)", () => {
+  const users = [{ id: "7", username: "alice", name: "Alice Smith" }];
+  const tweet = (extra: Partial<XTweet>): XTweet => ({ id: "1", text: "Read this https://t.co/a", author_id: "7", created_at: "2026-11-15T00:00:00.000Z", ...extra });
+  const link = (extra: Partial<XUrlEntity> = {}): XUrlEntity => ({ url: "https://t.co/a", expanded_url: "https://example.com/a", ...extra });
+  const map = (t: XTweet) => new XMapper({ users }).post(t);
+
+  it("uses a link card's headline", () => {
+    expect(map(tweet({ entities: { urls: [link({ title: "Why finite feeds win" })] } })).title).toBe("Why finite feeds win");
+  });
+
+  it("prefers an article's title", () => {
+    expect(map(tweet({ article: { title: "My article" }, entities: { urls: [link({ title: "Card" })] } })).title).toBe("My article");
+  });
+
+  it("is unset without a real title, and never the author's name", () => {
+    const post = map(tweet({ entities: { urls: [link()] } }));
+    expect(post).not.toHaveProperty("title");
+    expect(map(tweet({ entities: { urls: [link({ title: "Photo", media_key: "3_1", display_url: "pic.x.com/abc" })] } }))).not.toHaveProperty("title");
+  });
+});
+

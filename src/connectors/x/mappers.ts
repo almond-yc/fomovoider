@@ -107,12 +107,15 @@ export class XMapper {
     let text = cleanText(tweet.note_tweet?.text ?? tweet.text, urls, (u) => isMediaLink(u) || (quotedRef !== undefined && isLinkToPost(u, quotedRef.id)));
     if (repliedRef) text = text.replace(/^(@\w+\s+)+/, "");
 
+    const linkTitle = urls.find((u) => u.title && !isMediaLink(u) && !(quotedRef !== undefined && isLinkToPost(u, quotedRef.id)))?.title;
+    const title = (tweet.article?.title ?? linkTitle)?.trim();
     const replyAuthor = tweet.in_reply_to_user_id && this.users.has(tweet.in_reply_to_user_id) ? this.person(tweet.in_reply_to_user_id) : undefined;
     return {
       id: xId(tweet.id),
       platform: "x",
       author,
       createdAt: tweet.created_at ?? "",
+      ...(title ? { title } : {}),
       text,
       media: this.mediaFor(tweet.attachments?.media_keys),
       permalink: permalink(tweet.id, author.handle || undefined),

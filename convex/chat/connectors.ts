@@ -1,31 +1,28 @@
+import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
-import type { Capabilities, ConnectorError, Connector, Person, Session } from "../../src/connectors/types";
-import { xConfigFromEnv } from "../../src/connectors/x/config";
-import { XConnector } from "../../src/connectors/x/connector";
-import { createFixtureFetch } from "../../src/connectors/x/mock";
-import { convexUsageStore } from "../x/sync";
+import type { vMessage } from "../lib/validators";
+import type { Infer } from "convex/values";
+import type { Capabilities, ConnectorError } from "../../src/connectors/types";
 
-type ChatConnector = Pick<Connector, "capabilities" | "send" | "markRead">;
+type StoredMessage = Infer<typeof vMessage>;
 
 interface ChatPlatform {
   capabilities: Capabilities;
-  create(ctx: ActionCtx, account: Doc<"connectedAccounts">, onSessionRefreshed: (session: Session) => void): ChatConnector;
+  // Sends through the platform's own send action, which stores the message
+  // and moves the conversation preview. Failures throw a ConvexError
+  // carrying a ConnectorError.
+  send(ctx: ActionCtx, account: Doc<"connectedAccounts">, conversationId: string, text: string): Promise<StoredMessage>;
+  markRead?(ctx: ActionCtx, account: Doc<"connectedAccounts">, conversationId: string): Promise<void>;
 }
 
-// Platforms the inbox can send to and mark read, keyed by platform id. A new
+// Platforms the inbox can send to (and mark read), keyed by platform id. A
 // connector registers here; capabilities must match its connector's own.
 export const CHAT_PLATFORMS: Record<string, ChatPlatform> = {
   x: {
     capabilities: { feed: true, chats: true, sendMessage: true, sendMedia: false, reply: true },
-    create: (ctx, account, onSessionRefreshed) =>
-      new XConnector({
-        config: xConfigFromEnv(process.env),
-        ...(process.env.X_FIXTURES === "1" ? { fetch: createFixtureFetch() } : {}),
-        account: account.me as Person | undefined,
-        usage: convexUsageStore(ctx),
-        onSessionRefreshed,
-      }),
+    send: (ctx, account, conversationId, text) =>
+      ctx.runAction(internal.x.send.message, { accountId: account._id, conversationId, text }),
   },
 };
 

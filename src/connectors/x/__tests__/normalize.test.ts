@@ -184,3 +184,36 @@ describe("post title (contract v5)", () => {
   });
 });
 
+
+describe("DM participants X didn't expand", () => {
+  const myMessage = { data: [{ id: "1900000000000000001", event_type: "MessageCreate", text: "Hi Ethan!", sender_id: ME_ID, dm_conversation_id: `777-${ME_ID}`, created_at: "2026-10-20T05:29:28.000Z" }], includes: { users: [] }, meta: { result_count: 1 } };
+  const ethan = { id: "777", username: "ethan", name: "Ethan F", profile_image_url: "https://pbs.twimg.com/ethan.jpg" };
+
+  it("looks them up so the conversation has a handle and display name, billed as DM event reads", async () => {
+    const { connector, x, session } = setup({ config: { dailyDmEventReadBudget: 10 } });
+    x.on("GET", "/2/dm_events", { body: myMessage });
+    x.on("GET", "/2/users", { body: { data: [ethan] } });
+    const { conversations } = await connector.inbox(session, { limit: 5 });
+    expect(conversations[0]!.participants).toEqual([expect.objectContaining({ id: "x:777", handle: "ethan", displayName: "Ethan F" })]);
+    const lookup = x.callsTo("/2/users")[0]!;
+    expect(lookup.url.searchParams.get("ids")).toBe("777");
+    expect(lookup.url.searchParams.get("user.fields")).toContain("username");
+    expect(await connector.remainingBudget(ME_ID, "dmEventReads")).toBe(8);
+  });
+
+  it("makes no lookup when X already expanded everyone", async () => {
+    const { connector, x, session } = setup();
+    x.on("GET", "/2/dm_events", { body: fixture("dm-events") });
+    await connector.conversations(session, { limit: 50 });
+    expect(x.callsTo("/2/users")).toHaveLength(0);
+  });
+
+  it("leaves them unnamed when the DM budget is spent", async () => {
+    const { connector, x, session } = setup({ config: { dailyDmEventReadBudget: 1 } });
+    x.on("GET", "/2/dm_events", { body: myMessage });
+    const { conversations } = await connector.inbox(session, { limit: 1 });
+    expect(conversations[0]!.participants[0]).toMatchObject({ id: "x:777" });
+    expect(x.callsTo("/2/users")).toHaveLength(0);
+  });
+});
+

@@ -17,6 +17,7 @@ export const DM_USER_FIELDS = `${USER_FIELDS},receives_your_chat`;
 
 export const paths = {
   me: "/2/users/me",
+  users: "/2/users",
   homeTimeline: (userId: string) => `/2/users/${encodeURIComponent(userId)}/timelines/reverse_chronological`,
   mentions: (userId: string) => `/2/users/${encodeURIComponent(userId)}/mentions`,
   dmEvents: "/2/dm_events",

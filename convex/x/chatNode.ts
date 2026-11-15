@@ -18,6 +18,7 @@ import { type XChatConnection, connectXChat } from "./chatConnection";
 // itself is never stored. See convex/x/README.md, "X Chat".
 
 const DECRYPT_PER_RUN = 10;
+const FETCH_PAGES_PER_CONVERSATION = 3;
 const PUBLIC_KEYS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const OWN_KEYS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const KEYS_CHANGED = "Your X Chat keys changed on X. Enter your X Chat passcode again.";
@@ -112,32 +113,66 @@ export const decryptConversations = internalAction({
   args: { accountId: v.id("connectedAccounts"), conversations: v.array(vConversationInput) },
   returns: v.null(),
   handler: async (ctx, { accountId, conversations }) => {
-    const session = await openSession(ctx, accountId);
-    if (!session) {
-      await ctx.runMutation(internal.ingest.upsertConversations, { accountId, conversations: conversations.map(asLocked) });
-      return null;
-    }
-    const locked: ConversationInput[] = [];
-    try {
-      for (const [i, conversation] of conversations.entries()) {
-        if (i >= DECRYPT_PER_RUN) {
-          locked.push(asLocked(conversation));
-          continue;
-        }
-        try {
-          await ctx.runAction(internal.x.chat.fetchFor, { accountId, conversationId: conversation.id });
-        } catch (err) {
-          if (!(err instanceof Error && /budget/i.test(err.message))) console.error("X Chat fetch failed:", errorText(err));
-        }
-        if (!(await decryptOne(ctx, session, conversation))) locked.push(asLocked(conversation));
-      }
-    } finally {
-      session.engine.lock();
-    }
-    if (locked.length) await ctx.runMutation(internal.ingest.upsertConversations, { accountId, conversations: locked });
+    const listed = new Set(conversations.map((c) => c.id));
+    const pending = await ctx.runQuery(internal.x.chat.pendingConversations, { accountId, limit: DECRYPT_PER_RUN });
+    const queued = [...conversations, ...pending.filter((row) => !listed.has(row.id)).map(toInput)];
+    await decrypt(ctx, accountId, queued, true);
     return null;
   },
 });
+
+// A webhook delivered a new event for this conversation and it is already
+// stored, so it is decrypted without paying X for another event page.
+export const decryptDelivered = internalAction({
+  args: { accountId: v.id("connectedAccounts"), conversationId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { accountId, conversationId }) => {
+    const row = await ctx.runQuery(internal.x.chat.conversationRow, { accountId, conversationId });
+    if (row) await decrypt(ctx, accountId, [toInput(row)], false);
+    return null;
+  },
+});
+
+// Fetches a conversation's new events, a few pages at most. False when the
+// pass didn't finish (budget, error or page cap): the conversation is then
+// left locked, and pendingConversations hands it to a later run, which
+// resumes from the saved cursor.
+async function fetchAll(ctx: ActionCtx, accountId: Id<"connectedAccounts">, conversationId: string): Promise<boolean> {
+  try {
+    for (let page = 0; page < FETCH_PAGES_PER_CONVERSATION; page++) {
+      const { caughtUp } = await ctx.runAction(internal.x.chat.fetchFor, { accountId, conversationId });
+      if (caughtUp) return true;
+    }
+  } catch (err) {
+    if (!(err instanceof Error && /budget/i.test(err.message))) console.error("X Chat fetch failed:", errorText(err));
+  }
+  return false;
+}
+
+async function decrypt(ctx: ActionCtx, accountId: Id<"connectedAccounts">, conversations: ConversationInput[], fetch: boolean): Promise<void> {
+  const session = await openSession(ctx, accountId);
+  if (!session) {
+    await ctx.runMutation(internal.ingest.upsertConversations, { accountId, conversations: conversations.map(asLocked) });
+    return;
+  }
+  const locked: ConversationInput[] = [];
+  try {
+    for (const [i, conversation] of conversations.entries()) {
+      if (i >= DECRYPT_PER_RUN) {
+        locked.push(asLocked(conversation));
+        continue;
+      }
+      if (fetch && !(await fetchAll(ctx, accountId, conversation.id))) {
+        locked.push(asLocked(conversation));
+        continue;
+      }
+      if (!(await decryptOne(ctx, session, conversation))) locked.push(asLocked(conversation));
+    }
+  } finally {
+    session.engine.lock();
+  }
+  if (locked.length) await ctx.runMutation(internal.ingest.upsertConversations, { accountId, conversations: locked });
+}
 
 // messages.send for an X Chat conversation (via x/send:message): encrypts on
 // the server with the saved keys, sends, then syncs the conversation so the
@@ -173,6 +208,7 @@ async function sendWithKeys(
     }
     await useSigningKeys(ctx, session, conversation);
     session.engine.decrypt(conversationId, stored?.rows ?? [], stored?.keyEvents ?? []);
+    const before = new Set((stored?.rows ?? []).map((row) => `x:${row.id}`));
     const payload = session.engine.encrypt(conversationId, text);
     try {
       await session.x.client.send(session.x.session(), conversationId as ContractId, { meId: session.meId, payload });
@@ -181,7 +217,7 @@ async function sendWithKeys(
     }
     await ctx.runAction(internal.x.chat.fetchFor, { accountId, conversationId }).catch(() => undefined);
     const messages = (await decryptOne(ctx, session, conversation)) ?? [];
-    const sent = messages.find((m) => m.isMine && m.text === text);
+    const sent = messages.find((m) => m.isMine && m.text === text && !before.has(m.id));
     if (sent) return { ...sent, sentAt: Date.parse(sent.sentAt) };
     const now = new Date().toISOString();
     const fallback = {
@@ -194,7 +230,9 @@ async function sendWithKeys(
       media: [],
     };
     await ctx.runMutation(internal.ingest.upsertMessages, { accountId, messages: [fallback] });
-    return { ...fallback, sentAt: Date.parse(now) };
+    const shown = { ...fallback, sentAt: Date.parse(now) };
+    await ctx.runMutation(internal.x.state.showMessage, { accountId, message: shown });
+    return shown;
   } finally {
     session.engine.lock();
   }

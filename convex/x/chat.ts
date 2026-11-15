@@ -65,12 +65,10 @@ export const syncAccount = internalAction({
         }),
       );
       const conversations = res.conversations.filter((c) => stale.has(c.id));
-      if (conversations.length) {
-        if (await ctx.runQuery(internal.x.chatKeys.keysActive, { accountId })) {
-          await ctx.scheduler.runAfter(0, internal.x.chatNode.decryptConversations, { accountId, conversations });
-        } else {
-          await ctx.runMutation(internal.ingest.upsertConversations, { accountId, conversations });
-        }
+      if (await ctx.runQuery(internal.x.chatKeys.keysActive, { accountId })) {
+        await ctx.scheduler.runAfter(0, internal.x.chatNode.decryptConversations, { accountId, conversations });
+      } else if (conversations.length) {
+        await ctx.runMutation(internal.ingest.upsertConversations, { accountId, conversations });
       }
       // chatSince moves only when a pass has reached it, so conversations on
       // pages the budget or limit cut off are listed by the next run.
@@ -320,6 +318,41 @@ export const conversationRow = internalQuery({
       .query("conversations")
       .withIndex("by_userId_and_id", (q) => q.eq("userId", account.userId).eq("id", conversationId))
       .unique();
+  },
+});
+
+// Server decrypt work left over from earlier runs, oldest pass first: rows
+// still locked in the inbox (deferred past a run's limit, or their event
+// fetch didn't finish) and conversations whose event pass stopped mid-way.
+export const pendingConversations = internalQuery({
+  args: { accountId: v.id("connectedAccounts"), limit: v.number() },
+  handler: async (ctx, { accountId, limit }): Promise<Doc<"conversations">[]> => {
+    const account = await ctx.db.get(accountId);
+    if (!account) return [];
+    const unfinished = await ctx.db
+      .query("x_chat_cursors")
+      .withIndex("by_userId_and_conversationId", (q) => q.eq("userId", account.userId))
+      .filter((q) => q.neq(q.field("cursor"), undefined))
+      .take(limit);
+    const rows: Doc<"conversations">[] = [];
+    for (const cursor of unfinished) {
+      const row = await ctx.db
+        .query("conversations")
+        .withIndex("by_userId_and_id", (q) => q.eq("userId", account.userId).eq("id", cursor.conversationId))
+        .unique();
+      if (row) rows.push(row);
+    }
+    const locked = await ctx.db
+      .query("conversations")
+      .withIndex("by_userId_and_updatedAt", (q) => q.eq("userId", account.userId))
+      .order("desc")
+      .filter((q) => q.eq(q.field("platform"), "x"))
+      .take(500);
+    for (const row of locked) {
+      if (rows.length >= limit) break;
+      if (row.unavailable?.reason === "locked" && !rows.some((r) => r.id === row.id)) rows.push(row);
+    }
+    return rows.slice(0, limit);
   },
 });
 

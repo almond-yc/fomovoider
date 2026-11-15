@@ -172,6 +172,86 @@ describe("X Chat passcode", () => {
     expect(xdk.unlocks).toEqual([PASSCODE]);
   });
 
+  test("a webhook-delivered X Chat event is decrypted without another event read", async () => {
+    const calls = stubX();
+    const { t, accountId, as } = await setup();
+    await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
+    await settle(t);
+    const before = calls.length;
+    const alice = { id: `x:${ALICE}`, platform: "x" as const, handle: "alice", displayName: "Alice" };
+    await t.mutation(internal.x.webhook.storeChat, {
+      accountId,
+      xUserId: ME,
+      conversationId: ONE_TO_ONE,
+      participants: [me as typeof alice, alice],
+      updatedAt: Date.parse("2026-11-15T12:00:00Z"),
+      event: { id: "e-9", encodedEvent: "RVZFTlQtOQ==", senderId: ALICE, createdAt: "2026-11-15T12:00:00Z" },
+      sortKey: "9999999999999",
+      keys: [],
+    });
+    await t.action(internal.x.chatNode.decryptDelivered, { accountId, conversationId: ONE_TO_ONE });
+    await settle(t);
+    const [conversation] = await t.run((ctx) => ctx.db.query("conversations").collect());
+    expect(conversation.unavailable).toBeUndefined();
+    expect(conversation.lastMessage).toMatchObject({ text: "plain:RVZFTlQtOQ==" });
+    expect(calls.slice(before).filter((c) => c.key.includes("/events"))).toEqual([]);
+  });
+
+  test("an event pass cut short leaves the chat locked and a later run finishes it", async () => {
+    vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "100");
+    let more = true;
+    stubX({
+      [`GET /2/chat/conversations/${ALICE}/events`]: () =>
+        json(more ? { ...structuredClone(eventsFixture), meta: { ...eventsFixture.meta, has_more: true, next_token: "next" } } : { data: [], meta: { has_more: false } }),
+    });
+    const { t, accountId, as } = await setup();
+    await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
+    await t.action(internal.x.chat.syncAccount, { accountId });
+    await settle(t);
+    const [cut] = await t.run((ctx) => ctx.db.query("conversations").collect());
+    expect(cut.unavailable).toMatchObject({ reason: "locked" });
+    const [cursor] = await t.run((ctx) => ctx.db.query("x_chat_cursors").collect());
+    expect(cursor.cursor).toBe("next");
+
+    more = false;
+    await t.action(internal.x.chat.syncAccount, { accountId });
+    await settle(t);
+    const [done] = await t.run((ctx) => ctx.db.query("conversations").collect());
+    expect(done.unavailable).toBeUndefined();
+    expect(done.lastMessage).toMatchObject({ text: "plain:RVZFTlQtMw==" });
+  });
+
+  test("a send whose event isn't fetched yet is still returned as the new message and shown in the inbox", async () => {
+    let fail = false;
+    stubX({
+      [`GET /2/chat/conversations/${ALICE}/events`]: (url) => {
+        if (fail) return json({ errors: [{ message: "down" }] }, 503);
+        return json(url.searchParams.get("pagination_token") ? { data: [], meta: { has_more: false } } : structuredClone(eventsFixture));
+      },
+    });
+    const { t, accountId, as } = await setup();
+    await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
+    await t.action(internal.x.chat.syncAccount, { accountId });
+    await settle(t);
+    fail = true;
+    const result = await as.action(api.messages.send, { conversationId: ONE_TO_ONE, text: "plain:RVZFTlQtMw==" });
+    expect(result).toMatchObject({ ok: true, message: { id: "x:m-1" } });
+    const [conversation] = await t.run((ctx) => ctx.db.query("conversations").collect());
+    expect(conversation.lastMessage).toMatchObject({ id: "x:m-1", isMine: true });
+  });
+
+  test("without saved keys an X Chat send fails instead of going out as a plaintext DM", async () => {
+    const calls = stubX();
+    const { t, accountId, as } = await setup();
+    await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
+    await t.action(internal.x.chat.syncAccount, { accountId });
+    await settle(t);
+    await as.mutation(api.x.chatKeys.removePasscode, {});
+    const result = await as.action(api.messages.send, { conversationId: ONE_TO_ONE, text: "hola" });
+    expect(result.ok).toBe(false);
+    expect(calls.filter((c) => c.key.startsWith("POST"))).toEqual([]);
+  });
+
   test("messages.send sends X Chat messages encrypted on the server", async () => {
     const calls = stubX();
     const { t, accountId, as } = await setup();

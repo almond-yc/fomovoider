@@ -10,6 +10,7 @@ import {
   type Media,
   type Message,
   type Page,
+  type Person,
   type Post,
   type Session,
 } from "../types";
@@ -25,6 +26,7 @@ export type FeedExclude = "replies" | "retweets";
 
 export interface XConnectorOptions {
   config: XConfig;
+  account?: Person;
   login?: Login;
   onSessionRefreshed?: (session: Session) => void;
   usage?: UsageStore;
@@ -283,6 +285,29 @@ export class XConnector implements Connector {
     };
   }
 
+  // Every DM event newer than sinceId, one page at a time, newest first, for
+  // a backend that keeps its own history. cursor continues an unfinished pass.
+  async inbox(
+    session: Session,
+    opts: { sinceId?: string; cursor?: string; limit: number },
+  ): Promise<{ conversations: Conversation[]; messages: Message[]; cursor?: string; newestId?: string; reachedSince: boolean }> {
+    const ctx = this.context(session);
+    const me = await this.me(ctx);
+    const res = await this.readDmEvents(ctx, me.id, "dm_events", paths.dmEvents, opts);
+    const events = res.data ?? [];
+    const fresh = opts.sinceId ? events.filter((e) => compareXIds(e.id, opts.sinceId!) > 0) : events;
+    const reachedSince = fresh.length < events.length;
+    const mapper = new XMapper(res.includes, [...this.people.values()]);
+    const newest = events.reduce<string | undefined>((max, e) => (max === undefined || compareXIds(e.id, max) > 0 ? e.id : max), undefined);
+    return {
+      conversations: mapper.conversations(fresh, me.id),
+      messages: fresh.filter((e) => e.event_type === "MessageCreate").map((e) => mapper.message(e, me.id)),
+      ...(!reachedSince && res.meta?.next_token ? { cursor: res.meta.next_token } : {}),
+      ...(newest ? { newestId: newest } : {}),
+      reachedSince,
+    };
+  }
+
   private context(session: Session): CallContext {
     if (session.kind !== "oauth" || session.platform !== "x") {
       throw new ConnectorFailure({ kind: "session_expired" }, "The X connector needs an X OAuth session; log in to X again");
@@ -295,7 +320,11 @@ export class XConnector implements Connector {
   }
 
   private async me(ctx: CallContext): Promise<XUser> {
-    return this.people.get(this.sessionKey(ctx.session)) ?? this.fetchMe(ctx);
+    const known = this.opts.account;
+    const cached = this.people.get(this.sessionKey(ctx.session));
+    if (cached) return cached;
+    if (known) return { id: stripXId(known.id), username: known.handle, name: known.displayName, ...(known.avatarUrl ? { profile_image_url: known.avatarUrl } : {}) };
+    return this.fetchMe(ctx);
   }
 
   private async fetchMe(ctx: CallContext): Promise<XUser> {

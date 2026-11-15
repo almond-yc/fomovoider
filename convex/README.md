@@ -13,7 +13,7 @@ Everything in `convex/` except `convex/<platform>/`:
 
 ## Connectors own `convex/<platform>/`
 
-Sync actions, crons, token or cookie helpers and relevance scoring live in `convex/x/`, `convex/instagram/`, and so on. A connector never edits shared files; if it needs a shared change, it asks the App crew.
+Sync actions, crons, token or cookie helpers and relevance scoring live in `convex/x/`, `convex/instagram/`, and so on. A connector edits no shared file except to register its tables and crons (below); any other shared change goes through the App crew.
 
 ### Connector-owned tables
 
@@ -29,7 +29,7 @@ export const instagramTables = {
 };
 ```
 
-It registers them with one import and one spread in `convex/schema.ts`, the only change a connector makes to a shared file:
+It registers them with one import and one spread in `convex/schema.ts`, one of the two changes a connector makes to a shared file (the other is its cron registration, below):
 
 ```ts
 import { instagramTables } from "./instagram/schema";
@@ -39,6 +39,34 @@ export default defineSchema({
   ...instagramTables,
 });
 ```
+
+X registers `xTables` from `convex/x/schema.ts` the same way.
+
+### Connector crons
+
+`convex/crons.ts` is the shared cron registry. Each connector exports a `register<Platform>Crons(crons)` function from `convex/<platform>/crons.ts` that adds its own jobs, and the registry calls one per platform:
+
+```ts
+// convex/x/crons.ts
+import type { Crons } from "convex/server";
+import { internal } from "../_generated/api";
+
+export function registerXCrons(crons: Crons) {
+  crons.interval("sync X accounts", { hours: 6 }, internal.x.sync.syncAll, {});
+}
+```
+
+```ts
+// convex/crons.ts
+import { cronJobs } from "convex/server";
+import { registerXCrons } from "./x/crons";
+
+const crons = cronJobs();
+registerXCrons(crons);
+export default crons;
+```
+
+Prefix job names with the platform so they stay unique. Adding the import and the `register<Platform>Crons(crons)` call is, with the table spread, the only change a connector makes to a shared file.
 
 A `device` session holds only a `deviceId` pointing into such a table; device secrets stay there, never in `connectedAccounts`.
 

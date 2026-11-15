@@ -13,6 +13,7 @@ import {
 } from "./lib/validators";
 // Connector-owned tables: one import and one spread per connector, e.g.
 // import { instagramTables } from "./instagram/schema";
+// See convex/README.md, "Connector-owned tables".
 
 const sharedTables = {
   // users, authSessions, authAccounts, ... from Convex Auth.

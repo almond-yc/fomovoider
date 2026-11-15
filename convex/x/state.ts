@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { vMessage } from "../lib/validators";
+import { vConversationFields, vMessage } from "../lib/validators";
 import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "../_generated/server";
 
 const syncStateFields = {
@@ -144,20 +144,24 @@ export const sendTarget = internalQuery({
 
 // After a send or a webhook delivery the inbox shows the message at once: the
 // conversation's preview and order move to it, unless a newer message is
-// already there. False when the conversation isn't stored yet.
+// already there. A conversation that isn't stored yet is created from
+// `conversation` when given, in the same transaction.
 export const showMessage = internalMutation({
-  args: { accountId: v.id("connectedAccounts"), message: vMessage },
-  returns: v.boolean(),
-  handler: async (ctx, { accountId, message }) => {
+  args: { accountId: v.id("connectedAccounts"), message: vMessage, conversation: v.optional(v.object(vConversationFields)) },
+  returns: v.null(),
+  handler: async (ctx, { accountId, message, conversation: created }) => {
     const account = await ctx.db.get(accountId);
-    if (!account) return false;
+    if (!account) return null;
     const conversation = await ctx.db
       .query("conversations")
       .withIndex("by_userId_and_id", (q) => q.eq("userId", account.userId).eq("id", message.conversationId))
       .unique();
-    if (!conversation) return false;
+    if (!conversation) {
+      if (created) await ctx.db.insert("conversations", { userId: account.userId, ...created, lastMessage: message, updatedAt: message.sentAt });
+      return null;
+    }
     if (conversation.updatedAt <= message.sentAt) await ctx.db.patch(conversation._id, { lastMessage: message, updatedAt: message.sentAt });
-    return true;
+    return null;
   },
 });
 

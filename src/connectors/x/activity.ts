@@ -1,6 +1,8 @@
 import type { Conversation, Message, Person, Post } from "../types";
 import type { XIncludes, XTweet, XUrlEntity, XUser } from "./api-types";
-import { chatConversationId } from "./chat/ids";
+import { chatConversationId, eventSortKey } from "./chat/ids";
+
+const TWITTER_EPOCH_MS = 1288834974657n;
 import { LOCKED } from "./chat/client";
 import { API_BASE, paths } from "./endpoints";
 import { cleanText, XMapper, xId } from "./mappers";
@@ -109,19 +111,41 @@ interface XChatActivity {
   conversation_key_change_event?: string;
 }
 
+// encoded_event starts with the event's sequence id (Thrift field 1, a
+// string): the id GET /2/chat/conversations/{id}/events returns for the same
+// event. Keying webhook rows by it keeps one row per event whichever path
+// stored it, in order, with edit targets that resolve.
+export function chatSequenceId(encodedEvent: string): string | undefined {
+  try {
+    const bytes = Uint8Array.from(atob(encodedEvent.slice(0, 40)), (c) => c.charCodeAt(0));
+    if (bytes[0] !== 0x0b || bytes[1] !== 0 || bytes[2] !== 1) return undefined;
+    const length = (bytes[3]! << 24) | (bytes[4]! << 16) | (bytes[5]! << 8) | bytes[6]!;
+    if (length < 1 || length > 19) return undefined;
+    const id = String.fromCharCode(...bytes.slice(7, 7 + length));
+    return /^\d+$/.test(id) ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // chat.received / chat.sent: one encrypted event, stored as ciphertext, and
 // its conversation as a locked inbox row (participants are filled by the X
-// Chat sync).
+// Chat sync). sortKey orders it with polled rows: the sequence id, or else a
+// snowflake built from the event time.
 export function chatActivity(payload: unknown, meId: string) {
   const p = payload as XChatActivity;
   const conversationId = chatConversationId(p.conversation_id.replace(":", "-"));
-  const createdAt = p.created_at_msec ? new Date(Number(p.created_at_msec)).toISOString() : undefined;
+  const createdMs = p.created_at_msec ? Number(p.created_at_msec) : Date.now();
+  const createdAt = p.created_at_msec ? new Date(createdMs).toISOString() : undefined;
+  const sequenceId = chatSequenceId(p.encoded_event);
+  const sortKey = eventSortKey(sequenceId ?? String((BigInt(createdMs) - TWITTER_EPOCH_MS) << 22n));
   const others = conversationId.startsWith("x:g") ? [] : conversationId.slice(2).split("-").filter((id) => id !== meId);
   const participants: Person[] = [...new Set(others)].map((id) => ({ id: xId(id), platform: "x", handle: "", displayName: "" }));
   return {
-    conversation: { id: conversationId, platform: "x", participants, unavailable: LOCKED, updatedAt: createdAt ?? new Date().toISOString() } satisfies Conversation,
+    conversation: { id: conversationId, platform: "x", participants, unavailable: LOCKED, updatedAt: new Date(createdMs).toISOString() } satisfies Conversation,
+    sortKey,
     event: {
-      id: p.id,
+      id: sequenceId ?? p.id,
       encodedEvent: p.encoded_event,
       ...(p.conversation_key_version ? { keyVersion: p.conversation_key_version } : {}),
       ...(p.sender_id ? { senderId: p.sender_id } : {}),

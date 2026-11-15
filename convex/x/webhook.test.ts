@@ -134,7 +134,8 @@ describe("/x/webhook", () => {
     const events = await rows("x_chat_events");
     expect(events.map((e) => e.kind).sort()).toEqual(["event", "key"]);
     expect(events.find((e) => e.kind === "event")).toMatchObject({
-      eventId: "e4f4d3fc-8bbf-4928-92eb-e5058d6bb6f6",
+      eventId: "2080400825227100160",
+      sortKey: "2080400825227100160",
       conversationId: `x:${ME}-${OTHER}`,
       senderId: OTHER,
       keyVersion: "1768236281331",
@@ -144,6 +145,30 @@ describe("/x/webhook", () => {
       participants: [{ id: `x:${OTHER}` }],
       updatedAt: 1784841183370,
     });
+  });
+
+  test("an older DM delivered late doesn't move the preview back", async () => {
+    const { deliver, rows } = await setup();
+    const newer = sample("dm.received");
+    const older = sample("dm.received");
+    const dm = older.data.payload.direct_message_events[0];
+    dm.id = "2080765901528535000";
+    dm.created_timestamp = String(Number(dm.created_timestamp) - 60_000);
+    dm.message_create.message_data.text = "earlier";
+    await deliver(newer);
+    await deliver(older);
+    const conversation = (await rows("conversations")).find((c) => c.id === `x:${ME}-${OTHER}`)!;
+    expect(conversation).toMatchObject({ lastMessage: { text: "hello!" }, updatedAt: 1784928224372 });
+    expect((await rows("messages")).filter((m) => m.conversationId === conversation.id).length).toBe(2);
+  });
+
+  test("events for an X identity the account no longer holds are ignored", async () => {
+    const { t, accountId, deliver, rows } = await setup();
+    await t.run((ctx) => ctx.db.patch(accountId, { me: { id: "x:777", platform: "x", handle: "new", displayName: "New" } }));
+    await deliver(sample("dm.received"));
+    await deliver(sample("oauth.revoke"));
+    expect((await rows("messages")).filter((m) => m.text === "hello!")).toEqual([]);
+    expect(await t.run((ctx) => ctx.db.get(accountId))).toMatchObject({ status: "active" });
   });
 
   test("post.mention.create stores the post", async () => {
@@ -208,6 +233,42 @@ describe("subscriptions", () => {
     expect(calls.filter((c) => c.method === "DELETE").map((c) => c.path)).toEqual(["/2/activity/subscriptions/12"]);
     expect(calls.every((c) => c.path.startsWith("/2/oauth2") || c.auth === "Bearer access")).toBe(true);
     expect((await rows("x_webhook_accounts"))[0]).toMatchObject({ xUserId: ME, subscriptionIds: ["11", "100", "101", "102", "103"] });
+  });
+
+  test("ensureAll retries a pause whose deletions failed", async () => {
+    const { t, accountId, rows } = await setup();
+    const until = Date.now() + 60 * 60 * 1000;
+    await t.run(async (ctx) => {
+      const row = (await ctx.db.query("x_webhook_accounts").collect())[0]!;
+      await ctx.db.patch(row._id, { pausedUntil: until });
+    });
+    const calls = stubFetch({ "DELETE /2/activity/subscriptions/:id": () => json({ data: { deleted: true } }) });
+    await t.mutation(internal.x.webhook.ensureAll, {});
+    await t.finishAllScheduledFunctions(() => {});
+    expect(calls.filter((c) => c.method === "DELETE").map((c) => c.path)).toEqual(["/2/activity/subscriptions/s1", "/2/activity/subscriptions/s2"]);
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+    expect((await rows("x_webhook_accounts"))[0]).toMatchObject({ accountId, subscriptionIds: [], pausedUntil: until });
+  });
+
+  test("dropping an account keeps subscriptions another account of the same X user uses", async () => {
+    const { t, accountId, rows } = await setup();
+    const otherAccount = await t.run(async (ctx) => {
+      const account = (await ctx.db.get(accountId))!;
+      const userId = await ctx.db.insert("users", {});
+      const { _id, _creationTime, ...rest } = account;
+      const id = await ctx.db.insert("connectedAccounts", { ...rest, userId });
+      await ctx.db.insert("x_webhook_accounts", { accountId: id, xUserId: ME, subscriptionIds: ["s1", "s2"] });
+      await ctx.db.delete(accountId);
+      return id;
+    });
+    const calls = stubFetch({
+      "GET /2/activity/subscriptions": () => json({ data: [] }),
+      "POST /2/activity/subscriptions": () => json({ data: { subscription: { subscription_id: "7" } } }),
+    });
+    await t.mutation(internal.x.webhook.ensureAll, {});
+    await t.finishAllScheduledFunctions(() => {});
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+    expect((await rows("x_webhook_accounts")).map((r) => r.accountId)).toEqual([otherAccount]);
   });
 
   test("ensureAll subscribes new accounts, resumes paused ones and drops gone ones", async () => {

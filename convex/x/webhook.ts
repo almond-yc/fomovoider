@@ -2,7 +2,8 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import { type MutationCtx, httpAction, internalAction, internalMutation, internalQuery } from "../_generated/server";
-import { eventSortKey } from "../../src/connectors/x/chat";
+import { LOCKED } from "../../src/connectors/x/chat";
+import { vPerson } from "../lib/validators";
 import {
   type ActivityEvent,
   BILLED_EVENTS,
@@ -69,16 +70,21 @@ export const accept = internalMutation({
       const xUserId = activityUserId(event);
       if (!xUserId) continue;
       const rows = await ctx.db.query("x_webhook_accounts").withIndex("by_xUserId", (q) => q.eq("xUserId", xUserId)).collect();
+      // A row only counts while its account still holds this X identity; a
+      // reconnect to another identity leaves a stale row until ensureAll.
+      const owned: { row: Doc<"x_webhook_accounts">; account: Doc<"connectedAccounts"> }[] = [];
+      for (const row of rows) {
+        const account = await ctx.db.get(row.accountId);
+        if (account?.me?.id === `x:${xUserId}`) owned.push({ row, account });
+      }
       if (event.event_type === "oauth.revoke") {
-        for (const row of rows) {
-          const account = await ctx.db.get(row.accountId);
-          if (account) await ctx.db.patch(account._id, { status: "expired", lastError: { kind: "session_expired" } });
+        for (const { row, account } of owned) {
+          await ctx.db.patch(account._id, { status: "expired", lastError: { kind: "session_expired" } });
           await ctx.db.delete(row._id);
         }
         continue;
       }
-      const active: Doc<"x_webhook_accounts">[] = [];
-      for (const row of rows) if ((await ctx.db.get(row.accountId))?.status === "active") active.push(row);
+      const active = owned.filter(({ account }) => account.status === "active").map(({ row }) => row);
       if (!active.length) continue;
       const used = BILLED_EVENTS.has(event.event_type) ? await countEvent(ctx, xUserId) : 0;
       for (const row of active) {
@@ -86,7 +92,7 @@ export const accept = internalMutation({
           await ctx.db.patch(row._id, { pausedUntil: nextUtcDay() });
           await ctx.scheduler.runAfter(0, internal.x.webhook.pause, { accountId: row.accountId });
         }
-        await ctx.scheduler.runAfter(0, internal.x.webhook.processEvent, { accountId: row.accountId, event });
+        await ctx.scheduler.runAfter(0, internal.x.webhook.processEvent, { accountId: row.accountId, xUserId, event });
       }
     }
     return null;
@@ -95,34 +101,37 @@ export const accept = internalMutation({
 
 // Stores one event through the shared ingest functions.
 export const processEvent = internalAction({
-  args: { accountId: v.id("connectedAccounts"), event: v.any() },
+  args: { accountId: v.id("connectedAccounts"), xUserId: v.string(), event: v.any() },
   returns: v.null(),
-  handler: async (ctx, { accountId, event: raw }) => {
+  handler: async (ctx, { accountId, xUserId, event: raw }) => {
     const event = raw as ActivityEvent;
     const account = await ctx.runQuery(internal.accounts.get, { accountId });
-    if (!account?.me || account.status !== "active") return null;
-    const meId = account.me.id.slice(2);
+    if (account?.me?.id !== `x:${xUserId}` || account.status !== "active") return null;
     switch (event.event_type) {
       case "dm.received":
       case "dm.sent":
-        for (const { message, conversation } of dmActivity(event.payload, meId)) {
+        for (const { message, conversation } of dmActivity(event.payload, xUserId)) {
           const { raw: _raw, ...stored } = message;
           await ctx.runMutation(internal.ingest.upsertMessages, { accountId, messages: [stored] });
-          const shown = await ctx.runMutation(internal.x.state.showMessage, { accountId, message: { ...stored, sentAt: Date.parse(stored.sentAt) } });
-          if (!shown) await ctx.runMutation(internal.ingest.upsertConversations, { accountId, conversations: [{ ...conversation, lastMessage: stored }] });
+          const shown = { ...stored, sentAt: Date.parse(stored.sentAt) };
+          const { lastMessage: _last, ...rest } = conversation;
+          await ctx.runMutation(internal.x.state.showMessage, { accountId, message: shown, conversation: { ...rest, lastMessage: shown, updatedAt: shown.sentAt } });
         }
         return null;
       case "chat.received":
       case "chat.sent": {
-        const chat = chatActivity(event.payload, meId);
+        const chat = chatActivity(event.payload, xUserId);
         const keys = chat.keyEvent ? [{ eventId: `key:${await sha256(chat.keyEvent)}`, encodedEvent: chat.keyEvent }] : [];
-        const participants = await ctx.runMutation(internal.x.webhook.storeChat, { accountId, conversationId: chat.conversation.id, updatedAt: chat.conversation.updatedAt, event: chat.event, keys });
-        if (participants) {
-          await ctx.runMutation(internal.ingest.upsertConversations, {
-            accountId,
-            conversations: [{ ...chat.conversation, participants: participants.length ? participants : chat.conversation.participants }],
-          });
-        }
+        await ctx.runMutation(internal.x.webhook.storeChat, {
+          accountId,
+          xUserId,
+          conversationId: chat.conversation.id,
+          participants: chat.conversation.participants,
+          updatedAt: Date.parse(chat.conversation.updatedAt),
+          event: chat.event,
+          sortKey: chat.sortKey,
+          keys,
+        });
         return null;
       }
       case "post.mention.create":
@@ -134,38 +143,44 @@ export const processEvent = internalAction({
   },
 });
 
-// Stores a delivered X Chat event as ciphertext. Returns the participants to
-// keep when the inbox row must become (or stay) a locked X Chat row, or null
-// when a newer row already covers the conversation.
+// Stores a delivered X Chat event as ciphertext and, in the same
+// transaction, makes the conversation a locked inbox row at the event's time
+// unless a newer row already covers it (stored participants are kept).
 export const storeChat = internalMutation({
   args: {
     accountId: v.id("connectedAccounts"),
+    xUserId: v.string(),
     conversationId: v.string(),
-    updatedAt: v.string(),
+    participants: v.array(vPerson),
+    updatedAt: v.number(),
     event: v.object({ id: v.string(), encodedEvent: v.string(), keyVersion: v.optional(v.string()), senderId: v.optional(v.string()), createdAt: v.optional(v.string()) }),
+    sortKey: v.string(),
     keys: v.array(v.object({ eventId: v.string(), encodedEvent: v.string() })),
   },
-  returns: v.union(v.null(), v.array(v.any())),
-  handler: async (ctx, { accountId, conversationId, updatedAt, event, keys }) => {
+  returns: v.null(),
+  handler: async (ctx, { accountId, xUserId, conversationId, participants, updatedAt, event, sortKey, keys }) => {
     const account = await ctx.db.get(accountId);
-    if (!account?.me) return null;
+    if (account?.me?.id !== `x:${xUserId}` || account.status !== "active") return null;
     const { userId } = account;
-    const xUserId = account.me.id;
     const { id, ...rest } = event;
     const rows = [
-      { kind: "event" as const, eventId: id, sortKey: eventSortKey(id), ...rest },
+      { kind: "event" as const, eventId: id, sortKey, ...rest },
       ...keys.map((k) => ({ kind: "key" as const, eventId: k.eventId, sortKey: "", encodedEvent: k.encodedEvent })),
     ];
     for (const row of rows) {
       const existing = await ctx.db.query("x_chat_events").withIndex("by_userId_and_eventId", (q) => q.eq("userId", userId).eq("eventId", row.eventId)).first();
-      if (!existing) await ctx.db.insert("x_chat_events", { userId, xUserId, conversationId, ...row });
+      if (!existing) await ctx.db.insert("x_chat_events", { userId, xUserId: account.me.id, conversationId, ...row });
     }
     const conversation = await ctx.db
       .query("conversations")
       .withIndex("by_userId_and_id", (q) => q.eq("userId", userId).eq("id", conversationId))
       .unique();
-    if (conversation && conversation.updatedAt >= Date.parse(updatedAt)) return null;
-    return conversation?.participants ?? [];
+    if (!conversation) {
+      await ctx.db.insert("conversations", { userId, id: conversationId, platform: "x", participants, unavailable: LOCKED, updatedAt });
+    } else if (conversation.updatedAt < updatedAt) {
+      await ctx.db.patch(conversation._id, { unavailable: LOCKED, lastMessage: undefined, updatedAt });
+    }
+    return null;
   },
 });
 
@@ -199,40 +214,47 @@ export const pause = internalAction({
   },
 });
 
-// Removes the subscriptions of an account that is gone or no longer active
-// (its user token may be unusable, so the app token is used).
+// Forgets the routing row of an account that is gone, inactive or now another
+// X identity. Subscriptions belong to the X user, not the account, so they are
+// deleted (with the app token, as the user token may be unusable) only when
+// no other account still routes that X user. A subscribe running meanwhile
+// is repaired by the next hourly ensureAll.
 export const drop = internalAction({
-  args: { rowId: v.id("x_webhook_accounts"), subscriptionIds: v.array(v.string()) },
+  args: { rowId: v.id("x_webhook_accounts"), xUserId: v.string(), subscriptionIds: v.array(v.string()) },
   returns: v.null(),
-  handler: async (ctx, { rowId, subscriptionIds }) => {
-    if (subscriptionIds.length) await deleteSubscriptions({ bearerToken: bearerToken(), ids: subscriptionIds });
-    await ctx.runMutation(internal.x.webhook.deleteRow, { rowId });
+  handler: async (ctx, { rowId, xUserId, subscriptionIds }) => {
+    const shared = await ctx.runMutation(internal.x.webhook.releaseRow, { rowId, xUserId });
+    if (!shared && subscriptionIds.length) await deleteSubscriptions({ bearerToken: bearerToken(), ids: subscriptionIds });
     return null;
   },
 });
 
-// Hourly (crons.ts): subscribes active accounts that aren't yet, resumes
-// accounts whose pause ended, drops subscriptions of accounts that went
-// away, and prunes old event ids.
+// Hourly (crons.ts). Every active account is reconciled with X (missing
+// subscriptions are created, which also resumes accounts whose pause ended);
+// a pause whose deletions failed is retried; rows of accounts that went away
+// are dropped; old event ids are pruned.
 export const ensureAll = internalMutation({
   args: {},
   returns: v.null(),
   handler: async (ctx) => {
     const now = Date.now();
+    const rows = await ctx.db.query("x_webhook_accounts").collect();
+    for (const row of rows) {
+      const account = await ctx.db.get(row.accountId);
+      if (account?.status === "active" && account.me?.id === `x:${row.xUserId}`) continue;
+      await ctx.scheduler.runAfter(0, internal.x.webhook.drop, { rowId: row._id, xUserId: row.xUserId, subscriptionIds: row.subscriptionIds });
+    }
     if (await ctx.db.query("x_webhook").first()) {
       const accounts = await ctx.db.query("connectedAccounts").withIndex("by_platform", (q) => q.eq("platform", "x")).collect();
       for (const account of accounts) {
         if (account.status !== "active" || !account.me) continue;
-        const row = await ctx.db.query("x_webhook_accounts").withIndex("by_accountId", (q) => q.eq("accountId", account._id)).unique();
-        if (!row || (row.pausedUntil !== undefined && row.pausedUntil <= now)) {
-          await ctx.scheduler.runAfter(0, internal.x.webhook.subscribe, { accountId: account._id });
+        const row = rows.find((r) => r.accountId === account._id && account.me?.id === `x:${r.xUserId}`);
+        if (row?.pausedUntil !== undefined && row.pausedUntil > now) {
+          if (row.subscriptionIds.length) await ctx.scheduler.runAfter(0, internal.x.webhook.pause, { accountId: account._id });
+          continue;
         }
+        await ctx.scheduler.runAfter(0, internal.x.webhook.subscribe, { accountId: account._id });
       }
-    }
-    for (const row of await ctx.db.query("x_webhook_accounts").collect()) {
-      const account = await ctx.db.get(row.accountId);
-      if (account?.status === "active" && account.me?.id === `x:${row.xUserId}`) continue;
-      await ctx.scheduler.runAfter(0, internal.x.webhook.drop, { rowId: row._id, subscriptionIds: row.subscriptionIds });
     }
     const old = await ctx.db
       .query("x_webhook_events")
@@ -296,12 +318,21 @@ export const saveSubscriptions = internalMutation({
   },
 });
 
-export const deleteRow = internalMutation({
-  args: { rowId: v.id("x_webhook_accounts") },
-  returns: v.null(),
-  handler: async (ctx, { rowId }) => {
-    if (await ctx.db.get(rowId)) await ctx.db.delete(rowId);
-    return null;
+// Deletes the row if it still routes xUserId (subscribe may have replaced it
+// for the account's new identity). True when another active account still
+// routes xUserId, so its subscriptions must stay.
+export const releaseRow = internalMutation({
+  args: { rowId: v.id("x_webhook_accounts"), xUserId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, { rowId, xUserId }) => {
+    const row = await ctx.db.get(rowId);
+    if (row?.xUserId === xUserId) await ctx.db.delete(rowId);
+    for (const other of await ctx.db.query("x_webhook_accounts").withIndex("by_xUserId", (q) => q.eq("xUserId", xUserId)).collect()) {
+      if (other._id === rowId) continue;
+      const account = await ctx.db.get(other.accountId);
+      if (account?.status === "active" && account.me?.id === `x:${xUserId}`) return true;
+    }
+    return false;
   },
 });
 

@@ -102,6 +102,7 @@ function RootNavigator() {
             headerTitleStyle: { fontFamily: 'Inter_600SemiBold' },
           }}
         />
+        <Stack.Screen name="x-chat" />
       </Stack.Protected>
       <Stack.Screen name="feed-preview" />
     </Stack>

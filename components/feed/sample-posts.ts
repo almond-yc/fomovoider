@@ -34,7 +34,14 @@ export const samplePosts: (FeedPost & { id: string; title?: string })[] = [
     id: 'x:4',
     author: { handle: 'blender', displayName: 'Blender Studio', avatarUrl: 'https://i.pravatar.cc/96?img=48' },
     text: 'Big Buck Bunny, still a classic.',
-    media: [{ kind: 'video', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4' }],
+    media: [
+      {
+        kind: 'video',
+        url: 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4',
+        width: 640,
+        height: 360,
+      },
+    ],
     permalink: 'https://peach.blender.org',
   },
 ];

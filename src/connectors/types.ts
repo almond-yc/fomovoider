@@ -19,12 +19,14 @@ export interface Media {
   height?: number;
   altText?: string;
   durationSec?: number;
+  blurhash?: string;       // tiny placeholder painted while the media loads
 }
 
 export interface Post {
   id: Id;
   platform: PlatformId;
   author: Person;
+  title?: string;          // real titles only; never the author name
   createdAt: ISODate;
   text: string;            // plain text; links kept inline
   media: Media[];

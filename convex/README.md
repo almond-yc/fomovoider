@@ -6,10 +6,15 @@ Dev deployment: `groovy-bobcat-759`. The app reads its URL from `EXPO_PUBLIC_CON
 
 Everything in `convex/` except `convex/<platform>/`:
 
-- `schema.ts`: `sharedTables`, the Convex Auth tables (`users`, ...), `connectedAccounts` (one per user and platform, holding the connector `Session`), `feedCursors` (per user and platform: connector cursor, `caughtUp`, and `seenUntil`, where the feed ends), `posts`, `conversations`, `messages`. Rows mirror the contract's (`src/connectors/types.ts`) `Post`, `Conversation`, `Message` and `Person` types plus the owning `userId`. ISO dates are stored normalized (`Date#toISOString`); `raw` is never stored.
+- `schema.ts`: `sharedTables`, the Convex Auth tables (`users`, ...), `connectedAccounts` (one per user and platform, holding the connector `Session`), `feedCursors` (per user and platform: connector cursor, `caughtUp`, and `seenUntil`, where the feed ends), `posts`, `postStates`, `conversations`, `messages`. Rows mirror the contract's (`src/connectors/types.ts`) `Post`, `Conversation`, `Message` and `Person` types plus the owning `userId`; `raw` is never stored.
+- **Dates are epoch milliseconds.** Connectors pass the contract's ISO strings; ingest converts every date (`createdAt`, `expiresAt`, `extracted.event.startsAt`, `sentAt`, `updatedAt`) to epoch ms, and every public query returns epoch ms. Posts also carry `fetchedAt` (first ingest) and `updatedAt` (last upsert). `feed.markCaughtUp({ until })` takes epoch ms too.
+- **Posts**: `title` holds real titles only (empty titles and titles equal to the author's name or handle are dropped at ingest). `text` is cut to 10,000 characters. Engagement counts are never stored; the validators reject them.
+- **Media**: `media[].width`, `height` and `blurhash` are kept when a connector sends them. For platforms in `PERSIST_MEDIA` (`lib/media.ts`; Instagram on, X off), ingest schedules `internal.media.persist`, which copies each media file and the author's avatar into Convex file storage (`media[].storageId`, `author.avatarStorageId`). `feed.page` returns the stored copy's URL in `url`/`avatarUrl` and falls back to the platform URL.
+- `postStates.ts`: per user and post, `markSeen`, `markOpened`, `setHidden`, `setSaved`, checked against the post's owner. `feed.page` leaves hidden posts out.
+- `retention.ts`: the daily `app:retention` cron (registered with `registerAppCrons` in `crons.ts`) deletes posts past `expiresAt` and posts older than 30 days that the user hasn't saved, with their stored files and states.
 - `lib/validators.ts`: validators for the contract types. Import them instead of redefining.
 - `auth.ts`: Convex Auth, anonymous sign-in for dev builds.
-- Public functions for the app, all scoped to the signed-in user: `feed.page`, `feed.markCaughtUp`, `conversations.list`, `messages.list`, `accounts.list` (never returns sessions), `accounts.connect`, `accounts.disconnect`.
+- Public functions for the app, all scoped to the signed-in user: `feed.page`, `feed.markCaughtUp`, `postStates.*`, `conversations.list`, `messages.list`, `accounts.list` (never returns sessions), `accounts.connect`, `accounts.disconnect`.
 
 ## Connectors own `convex/<platform>/`
 
@@ -79,7 +84,7 @@ All internal, called with `ctx.runQuery` / `ctx.runMutation` from a sync action.
 | `internal.accounts.listByPlatform({ platform })` | Accounts to sync in a cron. |
 | `internal.accounts.get({ accountId })` | The account with its `session`. |
 | `internal.accounts.verifyIdentity({ accountId, me })` | Required while `status` is `pending` (after every `accounts.connect`): pass `account()`'s `me`. A different identity than before drops the old cursor and cached content; the account is `resetting` until the purge finishes. Ingest refuses in both states. |
-| `internal.accounts.saveSession({ accountId, session })` | Persist a refreshed session (`onSessionRefreshed`). |
+| `internal.accounts.saveSession({ accountId, session, expectedVersion? })` | Persist a refreshed session (`onSessionRefreshed`). Pass the `sessionVersion` you read with `accounts.get`; if the session changed since (the user reconnected), it returns `{ saved: false, reason: "session_changed" }` and keeps the newer session. |
 | `internal.accounts.recordSync({ accountId, error? })` | After a sync: success stamps `lastSyncedAt`; a `ConnectorError` sets status `expired` (`session_expired`) or `error`. |
 | `internal.ingest.upsertPosts({ accountId, posts, page? })` | Upsert `Post[]` by id, including `format`, `expiresAt` and `extracted`; `page: { cursor, caughtUp }` saves the feed cursor. Read it back from `feedCursors` for the next `since`. |
 | `internal.ingest.upsertConversations({ accountId, conversations })` | Upsert `Conversation[]` by id. |

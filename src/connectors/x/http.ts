@@ -7,6 +7,7 @@ export interface XProblem {
   title?: string;
   detail?: string;
   status?: number;
+  errors?: { message?: string }[];
 }
 
 export interface XErrorCause {

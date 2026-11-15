@@ -209,11 +209,17 @@ export const subscribe = internalAction({
     }
     if (missing.length) {
       const created = await withX(ctx, account, async (x, session) => {
-        const ids: string[] = [];
+        const ids: (string | undefined)[] = [];
         for (const eventType of missing) ids.push(await x.createActivitySubscription(session, { webhookId: webhook.webhookId, eventType, tag: TAG }));
         return ids;
       });
-      subscriptionIds.push(...created);
+      subscriptionIds.push(...created.filter((id): id is string => id !== undefined));
+      // X's list can omit subscriptions that exist; creating them again says
+      // DuplicateSubscription without an id, so the ids stored earlier for
+      // this X user, by any account routing it, are kept.
+      if (created.includes(undefined)) {
+        for (const id of await ctx.runQuery(internal.x.webhook.storedIds, { xUserId })) if (!subscriptionIds.includes(id)) subscriptionIds.push(id);
+      }
     }
     await ctx.runMutation(internal.x.webhook.saveSubscriptions, { accountId, xUserId, subscriptionIds });
     return null;
@@ -309,6 +315,16 @@ export const subscriptions = internalQuery({
   args: { accountId: v.id("connectedAccounts") },
   handler: async (ctx, { accountId }) =>
     await ctx.db.query("x_webhook_accounts").withIndex("by_accountId", (q) => q.eq("accountId", accountId)).unique(),
+});
+
+// Every subscription id stored for one X user, across accounts.
+export const storedIds = internalQuery({
+  args: { xUserId: v.string() },
+  returns: v.array(v.string()),
+  handler: async (ctx, { xUserId }) => {
+    const rows = await ctx.db.query("x_webhook_accounts").withIndex("by_xUserId", (q) => q.eq("xUserId", xUserId)).collect();
+    return [...new Set(rows.flatMap((r) => r.subscriptionIds))];
+  },
 });
 
 // A new webhook id invalidates every stored subscription; ensureAll then

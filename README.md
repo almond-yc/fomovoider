@@ -24,3 +24,17 @@ It has exactly two tabs:
 ## Status
 
 Early. Nothing is built yet.
+
+## Development
+
+The app is an [Expo](https://expo.dev) (SDK 58) React Native project written in TypeScript. You need Node.js 22.13+ or 24.3+.
+
+```bash
+npm install        # install dependencies
+npm start          # start the Expo dev server, then scan the QR code with Expo Go
+npm run android    # or open on an Android emulator/device
+npm run ios        # or open on an iOS simulator (macOS only)
+npx tsc --noEmit   # typecheck
+```
+
+Add packages with `npx expo install <package>` so versions stay compatible with the Expo SDK.

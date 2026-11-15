@@ -87,6 +87,7 @@ describe("instagram device runs", () => {
     const run = await claim(t, userId);
     expect(run.budget).toEqual({ maxMs: 480_000, maxPosts: 60, maxStoryFrames: 40 });
     const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["jpeg"])));
+    const storyId = await t.run((ctx) => ctx.storage.store(new Blob(["jpeg"])));
     await expect(
       t.mutation(api.instagram.agent.submitItems, { token: TOKEN, runId: run.runId, items: [item("instagram:a", storageId)] }),
     ).rejects.toThrow("verifyIdentity");
@@ -97,7 +98,7 @@ describe("instagram device runs", () => {
       runId: run.runId,
       items: [
         item("instagram:a", storageId, { extracted: { place: { name: "Berkeley" } } }),
-        item("instagram:b", storageId, {
+        item("instagram:b", storyId, {
           format: "story",
           expiresAt: "2026-11-16T10:00:00.000Z",
           facts: { sponsored: true, suggested: false, isReel: false, storyTrayPosition: 3 },
@@ -126,6 +127,22 @@ describe("instagram device runs", () => {
 
     const next = await claim(t, userId);
     expect(next.knownIds.sort()).toEqual(["instagram:a", "instagram:b"]);
+  });
+
+  test("a device can only pass files uploaded during its run, one post per file", async () => {
+    const { t, userId } = await paired();
+    const older = await t.run((ctx) => ctx.storage.store(new Blob(["someone else's"])));
+    const run = await claim(t, userId);
+    await t.mutation(api.instagram.agent.reportIdentity, { token: TOKEN, runId: run.runId, me });
+    const submit = (id: string, storageId: any) =>
+      t.mutation(api.instagram.agent.submitItems, { token: TOKEN, runId: run.runId, items: [item(id, storageId)] });
+    await expect(submit("instagram:a", older)).rejects.toThrow("not found");
+
+    const fresh = await t.run((ctx) => ctx.storage.store(new Blob(["jpeg"])));
+    await submit("instagram:a", fresh);
+    await submit("instagram:a", fresh);
+    await expect(submit("instagram:b", fresh)).rejects.toThrow("belongs to another post");
+    expect(await t.run((ctx) => ctx.storage.getUrl(older))).not.toBeNull();
   });
 
   test("a tripwire aborts the run and pauses the device for 72 hours", async () => {

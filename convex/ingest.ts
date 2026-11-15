@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
@@ -9,6 +9,7 @@ import {
   vConversationInput,
   vMessageInput,
   vPostInput,
+  vStoredMedia,
   type MessageInput,
   type PostInput,
 } from "./lib/validators";
@@ -64,6 +65,21 @@ function normalizePost(post: Omit<PostInput, "quoted">, platform: string) {
   };
 }
 
+type StoredMedia = Infer<typeof vStoredMedia>;
+
+// A storageId a connector passes (the file it already uploaded) must name an
+// existing file; ingest then keeps it instead of copying the media itself.
+async function storedMedia(ctx: MutationCtx, media: PostInput["media"]): Promise<StoredMedia[]> {
+  return await Promise.all(
+    media.map(async ({ storageId, ...rest }) => {
+      if (storageId === undefined) return rest;
+      const id = ctx.db.system.normalizeId("_storage", storageId);
+      if (id === null || !(await ctx.db.system.get(id))) throw new Error(`Media file ${storageId} not found`);
+      return { ...rest, storageId: id };
+    }),
+  );
+}
+
 function normalizeMessage(message: MessageInput, platform: string) {
   const { raw: _raw, ...rest } = message;
   assertNamespaced(rest.id, platform);
@@ -84,12 +100,14 @@ export const upsertPosts = internalMutation({
     const now = Date.now();
     for (const { quoted, ...post } of posts) {
       const doc = normalizePost(post, platform);
+      const given = await storedMedia(ctx, doc.media);
       const existing = await ctx.db
         .query("posts")
         .withIndex("by_userId_and_id", (q) => q.eq("userId", userId).eq("id", doc.id))
         .unique();
       // Files already copied for the same media or avatar carry over.
-      const media = doc.media.map((m) => {
+      const media = given.map((m) => {
+        if (m.storageId !== undefined) return m;
         const storageId = existing?.media.find((p) => p.storageId && sameFile(p.url, m.url))?.storageId;
         return storageId ? { ...m, storageId } : m;
       });
@@ -104,7 +122,7 @@ export const upsertPosts = internalMutation({
         ...doc,
         author: keepAvatar ? { ...doc.author, avatarStorageId: previous.avatarStorageId } : doc.author,
         media,
-        quoted: quoted ? normalizePost(quoted, quoted.platform) : undefined,
+        quoted: quoted ? { ...normalizePost(quoted, quoted.platform), media: quoted.media } : undefined,
         fetchedAt: existing?.fetchedAt ?? now,
         updatedAt: now,
       };

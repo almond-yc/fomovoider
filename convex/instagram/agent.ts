@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, type MutationCtx, type QueryCtx } from "../_generated/server";
@@ -178,19 +178,13 @@ export const submitItems = mutation({
   args: { token: v.string(), runId: v.id("instagram_runs"), items: v.array(vCapturedItem) },
   returns: v.number(),
   handler: async (ctx, { token, runId, items }) => {
-    const { device, accountId } = await claimedRun(ctx, token, runId);
+    const { device, run, accountId } = await claimedRun(ctx, token, runId);
     const posts: PostInput[] = [];
     for (const { media, facts, ...item } of items) {
       posts.push({
         ...item,
         platform: "instagram",
-        media: await Promise.all(
-          media.map(async ({ storageId, ...rest }) => {
-            const url = await ctx.storage.getUrl(storageId);
-            if (!url) throw new Error(`Upload ${storageId} not found`);
-            return { ...rest, url };
-          }),
-        ),
+        media: await Promise.all(media.map((m) => ownUpload(ctx, device, run, item.id, m))),
       });
       await upsertFacts(ctx, device, runId, item.id, facts);
     }
@@ -198,6 +192,32 @@ export const submitItems = mutation({
     return posts.length;
   },
 });
+
+// Ingest keeps a passed storageId and deletes the file with the post, so a
+// device may only pass files uploaded during this run, each bound to the
+// first device and post that used it.
+async function ownUpload(
+  ctx: MutationCtx,
+  device: Doc<"instagram_devices">,
+  run: Doc<"instagram_runs">,
+  postId: string,
+  { storageId, ...rest }: Infer<typeof vCapturedMedia>,
+) {
+  const file = await ctx.db.system.get(storageId);
+  const url = await ctx.storage.getUrl(storageId);
+  if (!file || !url || run.claimedAt === undefined || file._creationTime < run.claimedAt) {
+    throw new Error(`Upload ${storageId} not found`);
+  }
+  const claim = await ctx.db
+    .query("instagram_uploads")
+    .withIndex("by_storageId", (q) => q.eq("storageId", storageId))
+    .unique();
+  if (!claim) await ctx.db.insert("instagram_uploads", { storageId, deviceId: device._id, postId });
+  else if (claim.deviceId !== device._id || claim.postId !== postId) {
+    throw new Error(`Upload ${storageId} belongs to another post`);
+  }
+  return { ...rest, url, storageId };
+}
 
 async function upsertFacts(
   ctx: MutationCtx,

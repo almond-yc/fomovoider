@@ -21,6 +21,9 @@ The X sync for Fomovoider. It runs the connector core in `src/connectors/x/` (of
 - `x_usage`: the connector's daily budget counters, reserved atomically in a mutation.
 - `x_chat_events`: encrypted X Chat events and conversation key changes, stored exactly as X sent them (ciphertext only).
 - `x_chat_cursors`: per X Chat conversation, the event sync position.
+- `x_webhook`: the X Activity webhook registered for this deployment (one row).
+- `x_webhook_accounts`: per account, its X Activity subscription ids and, while the daily event cap holds them off, `pausedUntil`.
+- `x_webhook_events`: delivered `event_uuid`s, so redeliveries are dropped; pruned after 7 days.
 
 ## X Chat (encrypted DMs)
 
@@ -71,16 +74,33 @@ Show this, final, before the passcode is first entered (onboarding after Connect
 
 Sends happen only when a person taps send in the app; the sync never posts. Each send uses one of the daily `writes` (`X_DAILY_WRITE_BUDGET`) and is upserted right away, so the inbox and feed show it before the next sync. Failures are `ConvexError`s carrying a `ConnectorError`.
 
-- `internal.x.send.message({ accountId, conversationId, text })` sends a legacy DM (`POST /2/dm_conversations/{id}/messages`), stores it with `ingest.upsertMessages`, moves the conversation's preview and order to it with `x/state:markSent` (unless a newer message is already there) and returns the `Message`. It is internal on purpose: the app's single send path, `messages.send`, checks that the user owns the account and conversation and calls it for X. X refusing a conversation that has moved to encrypted X Chat is a `platform` error, and the write is given back.
+- `internal.x.send.message({ accountId, conversationId, text })` sends a legacy DM (`POST /2/dm_conversations/{id}/messages`), stores it with `ingest.upsertMessages`, moves the conversation's preview and order to it with `x/state:showMessage` (unless a newer message is already there) and returns the `Message`. It is internal on purpose: the app's single send path, `messages.send`, checks that the user owns the account and conversation and calls it for X. X refusing a conversation that has moved to encrypted X Chat is a `platform` error, and the write is given back.
 - `api.x.send.reply({ postId, text })` replies to one of the signed-in user's synced posts and returns `{ id, createdAt, permalink }`. It checks the caller is signed in and owns both the X account and the post, which must be an X post, so nothing is reserved for a target X can't take. X only accepts replies to posts that @mention the user or quote one of their posts; its 403 for any other post becomes a `platform` error saying so.
 - An expired account fails with `session_expired` before any X call; an account still being set up fails with a `platform` error.
+
+## Webhooks (X Activity API)
+
+X pushes new legacy DMs, X Chat events and mentions to `${CONVEX_SITE_URL}/x/webhook` (`webhook.ts`, routed in `convex/http.ts`), so the inbox updates in real time. Polling stays as the backstop for anything a webhook misses.
+
+- **Security.** GET answers X's CRC with `sha256=base64(HMAC-SHA256(X_CLIENT_SECRET, crc_token))`. A POST is accepted only when `X-Twitter-Webhooks-Signature-OAuth2` matches the HMAC of the raw body under `X_CLIENT_SECRET` (constant-time compare); anything else gets a 401.
+- **Delivery.** `accept` drops an `event_uuid` it has seen, routes the event to the accounts of `filter.user_id` through `x_webhook_accounts`, and schedules `processEvent`, so X gets its 200 at once. Events for X users without a subscribed, active account are ignored.
+  - `dm.received` / `dm.sent`: the message goes through `ingest.upsertMessages` and moves the conversation's preview (`x/state:showMessage`); a new conversation is created with the sender's handle and name from the payload. A send from the app comes back as `dm.sent` with the same id and just upserts again.
+  - `chat.received` / `chat.sent`: the ciphertext and any key change go into `x_chat_events`, and the conversation becomes a locked inbox row, as with the X Chat sync. The row is keyed by the sequence id at the start of `encoded_event`, the same id the events endpoint returns, so polled and delivered copies of an event are one row in the right order (falling back to X's event UUID, sorted by event time).
+- The conversation preview is compared and written in the same mutation as the event, so out-of-order or concurrent deliveries never move it back.
+  - `post.mention.create`: the post goes through `ingest.upsertPosts`.
+  - `oauth.revoke`: the account becomes `expired` with `session_expired`, so the app asks to reconnect; X deletes the subscriptions itself. It needs no subscription.
+- **Subscriptions.** `subscribe` makes sure an account has one subscription per event in `WEBHOOK_EVENTS` (`src/connectors/x/activity.ts`) on the registered webhook, created with the user's token (the `dm.read` and `tweet.read` scopes the login already asks for). Listing and deleting use the app token: X's user-token list also requires `like.read`, which Fomovoider doesn't request. The hourly cron `x:webhook subscriptions` (`ensureAll`) reconciles every active account with X (creating what is missing, which also resumes paused accounts and repairs races), retries a pause whose deletions failed, forgets accounts that were disconnected, are no longer active or now hold another X identity, and prunes old event ids. Subscriptions belong to the X user, so they are deleted (with the app token) only when no other active account routes that X user. Events are only applied to an account that still holds the event's X identity.
+- **Daily cap.** Billed events (`dm.received`, `chat.received`, `post.mention.create`) are counted per X user per UTC day in `x_usage` (`x:<id>:webhookEvents:<date>`). When the count reaches `X_DAILY_WEBHOOK_EVENT_CAP` (default 200), that account's subscriptions are deleted until the next UTC day and polling covers the rest of the day. X bills events that are already in flight, so the cap can be overrun by a few.
+- **Setup, once per deployment, after deploying:** `npx convex run x/webhook:register` registers `${CONVEX_SITE_URL}/x/webhook` with `X_BEARER_TOKEN` (X runs a CRC against it first) and subscribes every active account. Registering again is a no-op; an invalid webhook is revalidated. Subscriptions belong to the X app, so prod gets its own X app rather than sharing dev's.
 
 ## Env (Convex deployment)
 
 | Var | |
 | --- | --- |
 | `X_CLIENT_ID` | Required. |
-| `X_CLIENT_SECRET` | Only for a confidential X app. |
+| `X_CLIENT_SECRET` | Only for a confidential X app. Also signs webhook CRCs and verifies webhook POSTs; required for webhooks. |
+| `X_BEARER_TOKEN` | The app-only bearer token. Used to register the webhook and to remove subscriptions without a user token. |
+| `X_DAILY_WEBHOOK_EVENT_CAP` | Billed webhook events per X user per UTC day before that account's subscriptions are paused. Default 200. |
 | `X_CHAT_KEY_ENCRYPTION_KEY` | Required for server-side X Chat: 32 random bytes, base64 (`openssl rand -base64 32`). It seals the saved X Chat keys; losing or changing it means every user enters their passcode again. Set it per deployment and never reuse it across deployments. |
 | `X_DAILY_BUDGET_SPLIT_USD` | Daily dollars per kind, e.g. `chatEventReads=0.30,postReads=0.20`. Kinds not named keep the default split below. |
 | `X_DAILY_POST_READ_BUDGET`, `X_DAILY_DM_EVENT_READ_BUDGET`, `X_DAILY_CHAT_EVENT_READ_BUDGET`, `X_DAILY_WRITE_BUDGET` | Counts per X user per UTC day; each one overrides the split for its kind. Defaults 40, 10, 30, 3. |
@@ -99,3 +119,5 @@ The default split, per X user per UTC day (`DEFAULT_DAILY_BUDGET_SPLIT_USD` in `
 | **Total** | | **$0.645** | $19.995 in a 31-day month |
 
 That stays inside the $20 free credits. X publishes no X Chat price yet, so chat event reads are budgeted at the legacy DM event price. Prices may change; `x_usage` shows what was used.
+
+Webhook events are billed on top of this, per delivered event: `dm.received` and `chat.received` $0.010, `post.mention.create` $0.005; `dm.sent`, `chat.sent` and `oauth.revoke` are free. At the default cap of 200 billed events a day that is at most $2 per X user per day.

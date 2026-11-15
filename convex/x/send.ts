@@ -30,7 +30,7 @@ export const message = internalAction({
     const { raw: _raw, ...stored } = sent;
     await ctx.runMutation(internal.ingest.upsertMessages, { accountId, messages: [stored] });
     const message = { ...stored, sentAt: Date.parse(stored.sentAt) };
-    await ctx.runMutation(internal.x.state.markSent, { accountId, message });
+    await ctx.runMutation(internal.x.state.showMessage, { accountId, message });
     return message;
   },
 });
@@ -51,7 +51,7 @@ export const reply = action({
   },
 });
 
-async function withX<T>(
+export async function withX<T>(
   ctx: ActionCtx,
   account: Doc<"connectedAccounts"> | null,
   send: (x: XConnector, session: Session) => Promise<T>,

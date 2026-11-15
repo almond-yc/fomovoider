@@ -46,6 +46,26 @@ export const xTables = {
     .index("by_userId_and_conversationId_and_kind_and_sortKey", ["userId", "conversationId", "kind", "sortKey"])
     .index("by_userId_and_eventId", ["userId", "eventId"]),
 
+  // The app's X Activity webhook on this deployment (one row), from
+  // x/webhook:register.
+  x_webhook: defineTable({ webhookId: v.string(), url: v.string() }),
+
+  // Per connected account: its X Activity subscription ids, and until when
+  // they are removed because the daily event cap was reached.
+  x_webhook_accounts: defineTable({
+    accountId: v.id("connectedAccounts"),
+    xUserId: v.string(),
+    subscriptionIds: v.array(v.string()),
+    pausedUntil: v.optional(v.number()),
+  })
+    .index("by_accountId", ["accountId"])
+    .index("by_xUserId", ["xUserId"]),
+
+  // Delivered webhook events by event_uuid, so a redelivery is dropped.
+  x_webhook_events: defineTable({ eventId: v.string(), receivedAt: v.number() })
+    .index("by_eventId", ["eventId"])
+    .index("by_receivedAt", ["receivedAt"]),
+
   // Per X Chat conversation: the newest event fully synced (sinceId), and an
   // unfinished pass from newest to older that later fetches continue.
   x_chat_cursors: defineTable({

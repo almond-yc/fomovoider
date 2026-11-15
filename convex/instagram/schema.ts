@@ -19,6 +19,14 @@ export const vTripwire = v.object({
 });
 
 export const instagramTables = {
+  // Which device and post an uploaded capture belongs to. submitItems binds a
+  // file on first use, so no other device or post can adopt it.
+  instagram_uploads: defineTable({
+    storageId: v.id("_storage"),
+    deviceId: v.id("instagram_devices"),
+    postId: v.string(),
+  }).index("by_storageId", ["storageId"]),
+
   // One paired phone per user. The host agent authenticates with a token
   // whose SHA-256 is stored here; the token itself never reaches Convex.
   instagram_devices: defineTable({

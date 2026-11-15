@@ -24,4 +24,6 @@ export const paths = {
   conversationEvents: (conversationId: string) => `/2/dm_conversations/${encodeURIComponent(conversationId)}/dm_events`,
   conversationMessages: (conversationId: string) => `/2/dm_conversations/${encodeURIComponent(conversationId)}/messages`,
   tweets: "/2/tweets",
+  activitySubscriptions: "/2/activity/subscriptions",
+  activitySubscription: (id: string) => `/2/activity/subscriptions/${encodeURIComponent(id)}`,
 };

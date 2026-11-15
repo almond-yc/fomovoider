@@ -285,6 +285,22 @@ export class XConnector implements Connector {
     };
   }
 
+  // Creates one X Activity subscription for this user. Creating needs the
+  // user's token (dm.read for dm.* and chat.*, tweet.read for posts);
+  // listing and deleting go through the app token (activity.ts), since the
+  // user-token list also wants like.read, which Fomovoider doesn't ask for.
+  async createActivitySubscription(session: Session, opts: { webhookId: string; eventType: string; tag: string }): Promise<string> {
+    const ctx = this.context(session);
+    const me = await this.me(ctx);
+    const res = await this.http.request<{ data: { subscription: { subscription_id: string } } }>(ctx, {
+      method: "POST",
+      path: paths.activitySubscriptions,
+      endpoint: "create_activity_subscription",
+      body: { event_type: opts.eventType, filter: { user_id: me.id }, webhook_id: opts.webhookId, tag: opts.tag },
+    });
+    return res.data.subscription.subscription_id;
+  }
+
   // Every DM event newer than sinceId, one page at a time, newest first, for
   // a backend that keeps its own history. cursor continues an unfinished pass.
   async inbox(

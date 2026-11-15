@@ -1,5 +1,6 @@
 import '../global.css';
 
+import { ChatProviders } from '@/components/chat';
 import { NAV_THEME } from '@/lib/theme';
 import { ConvexClientProvider } from '@/src/providers/ConvexClientProvider';
 import {
@@ -40,7 +41,9 @@ export default function RootLayout() {
     <ConvexClientProvider>
       <ThemeProvider value={NAV_THEME[scheme]}>
         <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-        <Stack screenOptions={{ headerShown: false }} />
+        <ChatProviders>
+          <Stack screenOptions={{ headerShown: false }} />
+        </ChatProviders>
         <PortalHost />
       </ThemeProvider>
     </ConvexClientProvider>

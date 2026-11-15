@@ -8,7 +8,7 @@ import { connectors } from '@/lib/connectors';
 import type { FunctionReturnType } from 'convex/server';
 import { useConvex, useConvexAuth, useMutation, usePaginatedQuery, useQuery } from 'convex/react';
 import { CircleCheck, Link2 } from 'lucide-react-native';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { Alert, FlatList, Pressable, RefreshControl, View, type ListViewToken } from 'react-native';
 
 type Account = FunctionReturnType<typeof api.accounts.list>[number];
@@ -48,16 +48,26 @@ export default function FeedScreen() {
     );
   }
   return (
-    <View className="flex-1 bg-background">
-      <AccountNotices accounts={accounts} />
-      <FeedSession key={session} refreshing={refreshing} onRefresh={refresh} />
-    </View>
+    <FeedSession
+      key={session}
+      notices={<AccountNotices accounts={accounts} />}
+      refreshing={refreshing}
+      onRefresh={refresh}
+    />
   );
 }
 
 // One pass through the feed. Pull to refresh starts a new one, which only
 // shows posts newer than where the last one was caught up.
-function FeedSession({ refreshing, onRefresh }: { refreshing: boolean; onRefresh: () => void }) {
+function FeedSession({
+  notices,
+  refreshing,
+  onRefresh,
+}: {
+  notices: ReactElement;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
   const { results, status, loadMore } = usePaginatedQuery(api.feed.page, {}, { initialNumItems: PAGE_SIZE });
   const connectorsCaughtUp = useQuery(api.feed.connectorsCaughtUp);
   const markCaughtUp = useMutation(api.feed.markCaughtUp);
@@ -124,7 +134,10 @@ function FeedSession({ refreshing, onRefresh }: { refreshing: boolean; onRefresh
         key="caught-up"
         data={[]}
         renderItem={() => null}
+        className="bg-background"
         contentContainerClassName="flex-1"
+        contentInsetAdjustmentBehavior="automatic"
+        ListHeaderComponent={notices}
         ListEmptyComponent={<CaughtUp />}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       />
@@ -134,6 +147,9 @@ function FeedSession({ refreshing, onRefresh }: { refreshing: boolean; onRefresh
     <FlatList
       key="feed"
       data={posts}
+      className="bg-background"
+      contentInsetAdjustmentBehavior="automatic"
+      ListHeaderComponent={notices}
       keyExtractor={(post) => post._id}
       renderItem={({ item }) => (
         <Pressable onLongPress={() => showActions(item)} accessibilityHint="Long press to save or hide">
@@ -255,6 +271,7 @@ function SkeletonList() {
   return (
     <FlatList
       className="bg-background"
+      contentInsetAdjustmentBehavior="automatic"
       data={[0, 1, 2]}
       keyExtractor={String}
       renderItem={({ index }) => <ContentItemSkeleton withMedia={index === 0} />}

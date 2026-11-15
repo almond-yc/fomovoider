@@ -13,8 +13,8 @@ Everything in `convex/` except `convex/<platform>/`:
 - `postStates.ts`: per user and post, `markSeen`, `markOpened`, `setHidden`, `setSaved`, checked against the post's owner. `feed.page` leaves hidden posts out.
 - `retention.ts`: the daily `app:retention` cron (registered with `registerAppCrons` in `crons.ts`) deletes posts past `expiresAt` and posts older than 30 days that the user hasn't saved, with their stored files and states.
 - `lib/validators.ts`: validators for the contract types. Import them instead of redefining.
-- `auth.ts`: Convex Auth, anonymous sign-in for dev builds.
-- Public functions for the app, all scoped to the signed-in user: `feed.page`, `feed.markCaughtUp`, `postStates.*`, `conversations.list`, `messages.list`, `accounts.list` (never returns sessions), `accounts.connect`, `accounts.disconnect`.
+- `auth.ts`: Convex Auth with the Password provider (email and password, no verification yet). Needs `JWT_PRIVATE_KEY`, `JWKS` and `SITE_URL` on the deployment.
+- Public functions for the app, all scoped to the signed-in user: `feed.page`, `feed.markCaughtUp`, `postStates.*`, `conversations.list`, `messages.list`, `users.viewer` (the signed-in user's email and connected accounts, or null when signed out; the app's gate and Settings read it), `accounts.list` (never returns sessions), `accounts.connect`, `accounts.disconnect`.
 
 ## Connectors own `convex/<platform>/`
 

@@ -7,6 +7,7 @@ import {
   mutation,
   query,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
 import { deletePost } from "./lib/posts";
@@ -15,31 +16,32 @@ import { vAccountStatus, vConnectorError, vPerson, vPlatform, vSession } from ".
 const PURGE_BATCH = 100;
 
 // The app's view of a connected account. Never includes the session.
+export const vAccountView = v.object({
+  platform: vPlatform,
+  me: v.optional(vPerson),
+  status: vAccountStatus,
+  lastError: v.optional(vConnectorError),
+  lastSyncedAt: v.optional(v.number()),
+});
+
+export async function listAccounts(ctx: QueryCtx, userId: Id<"users">) {
+  const accounts = await ctx.db
+    .query("connectedAccounts")
+    .withIndex("by_userId_and_platform", (q) => q.eq("userId", userId))
+    .collect();
+  return accounts.map(({ platform, me, status, lastError, lastSyncedAt }) => ({
+    platform,
+    me,
+    status,
+    lastError,
+    lastSyncedAt,
+  }));
+}
+
 export const list = query({
   args: {},
-  returns: v.array(
-    v.object({
-      platform: vPlatform,
-      me: v.optional(vPerson),
-      status: vAccountStatus,
-      lastError: v.optional(vConnectorError),
-      lastSyncedAt: v.optional(v.number()),
-    }),
-  ),
-  handler: async (ctx) => {
-    const userId = await requireUserId(ctx);
-    const accounts = await ctx.db
-      .query("connectedAccounts")
-      .withIndex("by_userId_and_platform", (q) => q.eq("userId", userId))
-      .collect();
-    return accounts.map(({ platform, me, status, lastError, lastSyncedAt }) => ({
-      platform,
-      me,
-      status,
-      lastError,
-      lastSyncedAt,
-    }));
-  },
+  returns: v.array(vAccountView),
+  handler: async (ctx) => listAccounts(ctx, await requireUserId(ctx)),
 });
 
 // Called by the app after a webview or OAuth login. Replaces any previous

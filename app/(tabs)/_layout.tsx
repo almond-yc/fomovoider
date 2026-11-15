@@ -1,6 +1,10 @@
-import { Text } from '@/components/ui/text';
+import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/ui/icon';
+import { Wordmark } from '@/components/wordmark';
 import { THEME } from '@/lib/theme';
+import { Link } from 'expo-router';
 import { NativeTabs } from 'expo-router/native-tabs';
+import { Settings } from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
 import { View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,9 +17,12 @@ export default function TabsLayout() {
     <View className="flex-1 bg-background">
       <SafeAreaView edges={['top']}>
         <View className="h-11 items-center justify-center">
-          <Text className="font-title text-lg" accessibilityRole="header">
-            Fomovoider
-          </Text>
+          <Wordmark />
+          <Link href="/settings" asChild>
+            <Button variant="ghost" size="icon" className="absolute right-2" accessibilityLabel="Settings">
+              <Icon as={Settings} size={20} className="text-muted-foreground" />
+            </Button>
+          </Link>
         </View>
       </SafeAreaView>
       <NativeTabs

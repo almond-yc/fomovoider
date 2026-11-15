@@ -1,6 +1,7 @@
 import '../global.css';
 
 import { NAV_THEME } from '@/lib/theme';
+import { api } from '@/convex/_generated/api';
 import { ConvexClientProvider } from '@/src/providers/ConvexClientProvider';
 import {
   Inter_400Regular,
@@ -13,6 +14,7 @@ import { PortalHost } from '@rn-primitives/portal';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
+import { useConvexAuth, useQuery } from 'convex/react';
 import { useColorScheme } from 'nativewind';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
@@ -27,10 +29,6 @@ export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold });
 
   useEffect(() => {
-    if (fontsLoaded || fontError) SplashScreen.hideAsync();
-  }, [fontsLoaded, fontError]);
-
-  useEffect(() => {
     if (Platform.OS === 'web') document.documentElement.classList.toggle('dark', scheme === 'dark');
   }, [scheme]);
 
@@ -40,9 +38,52 @@ export default function RootLayout() {
     <ConvexClientProvider>
       <ThemeProvider value={NAV_THEME[scheme]}>
         <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-        <Stack screenOptions={{ headerShown: false }} />
+        <RootNavigator />
         <PortalHost />
       </ThemeProvider>
     </ConvexClientProvider>
+  );
+}
+
+// Signed out: sign up or sign in. Signed in with no connected account: the
+// Connect screen. Otherwise the tabs and Settings.
+function RootNavigator() {
+  const { isLoading, isAuthenticated } = useConvexAuth();
+  const viewer = useQuery(api.users.viewer, isAuthenticated ? {} : 'skip');
+  const ready = !isLoading && (!isAuthenticated || viewer !== undefined);
+
+  useEffect(() => {
+    if (ready) SplashScreen.hideAsync();
+  }, [ready]);
+
+  if (!ready) return null;
+
+  const signedIn = isAuthenticated && viewer !== null;
+  const connected = viewer?.accounts.some((a) => a.status === 'active') ?? false;
+
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Protected guard={!signedIn}>
+        <Stack.Screen name="sign-up" />
+        <Stack.Screen name="sign-in" />
+      </Stack.Protected>
+      <Stack.Protected guard={signedIn && !connected}>
+        <Stack.Screen name="connect" />
+      </Stack.Protected>
+      <Stack.Protected guard={signedIn && connected}>
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen
+          name="settings"
+          options={{
+            headerShown: true,
+            title: 'Settings',
+            headerShadowVisible: false,
+            headerBackButtonDisplayMode: 'minimal',
+            headerTitleStyle: { fontFamily: 'Inter_600SemiBold' },
+          }}
+        />
+      </Stack.Protected>
+      <Stack.Screen name="feed-preview" />
+    </Stack>
   );
 }

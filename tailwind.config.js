@@ -43,7 +43,7 @@ module.exports = {
         },
       },
       fontFamily: {
-        title: platformSelect({ ios: 'Iowan Old Style', default: 'serif' }),
+        title: platformSelect({ ios: "'Iowan Old Style'", android: 'serif', default: 'serif' }),
         sans: 'Inter_400Regular',
         'sans-medium': 'Inter_500Medium',
         'sans-semibold': 'Inter_600SemiBold',

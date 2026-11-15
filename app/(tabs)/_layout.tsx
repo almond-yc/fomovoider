@@ -17,7 +17,7 @@ export default function TabsLayout() {
         headerTitle: () => <Text className="font-title text-lg">Fomovoider</Text>,
         tabBarActiveTintColor: theme.foreground,
         tabBarInactiveTintColor: theme.mutedForeground,
-        tabBarLabelStyle: { fontFamily: 'Inter_500Medium' },
+        tabBarShowLabel: false,
       }}>
       <Tabs.Screen
         name="index"

@@ -52,16 +52,29 @@ export function useXChat(): XChatContextValue {
   return value;
 }
 
+// Null when no XChatProvider is mounted above, so the inbox hooks can run
+// anywhere and simply leave X Chat rows locked.
+export function useOptionalXChat(): XChatContextValue | null {
+  return useContext(XChatContext);
+}
+
 class BridgeFailure extends Error {
   constructor(readonly detail: XChatError) {
     super(detail.message);
   }
 }
 
-// Mount once, inside ConvexClientProvider. It hosts the hidden WebView that
+// Mount once, inside ConvexClientProvider, above every screen that shows X
+// Chat (the Chats tab and /x-chat/unlock). It hosts the hidden WebView that
 // runs X's Chat XDK: the passcode and keys stay in that WebView's memory on
-// this phone, and only ciphertext goes to Convex and X.
+// this phone, and only ciphertext goes to Convex and X. A nested
+// XChatProvider reuses the outer one, so the engine never runs twice.
 export function XChatProvider({ children }: { children: ReactNode }) {
+  if (useContext(XChatContext)) return <>{children}</>;
+  return <XChatEngine>{children}</XChatEngine>;
+}
+
+function XChatEngine({ children }: { children: ReactNode }) {
   const accounts = useQuery(api.accounts.list);
   const x = accounts?.find((a) => a.platform === "x" && a.status === "active");
   const meId = x?.me?.id.slice(2) ?? null;

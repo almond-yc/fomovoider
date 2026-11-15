@@ -16,8 +16,8 @@ describe("xConfigFromEnv", () => {
       callbackUrl: "http://127.0.0.1:8787/callback",
       dailyPostReadBudget: 100,
       dailyDmEventReadBudget: 10,
-      dailyChatEventReadBudget: 36,
-      dailyWriteBudget: 5,
+      dailyChatEventReadBudget: 30,
+      dailyWriteBudget: 3,
     });
   });
 
@@ -30,7 +30,7 @@ describe("xConfigFromEnv", () => {
 
   it("gives X Chat the largest share of the default split", () => {
     const c = xConfigFromEnv({ X_CLIENT_ID: "id" });
-    expect(c).toMatchObject({ dailyPostReadBudget: 20, dailyChatEventReadBudget: 36 });
+    expect(c).toMatchObject({ dailyPostReadBudget: 40, dailyChatEventReadBudget: 30 });
     expect(Math.max(...Object.values(DEFAULT_DAILY_BUDGET_SPLIT_USD))).toBe(DEFAULT_DAILY_BUDGET_SPLIT_USD.chatEventReads);
   });
 

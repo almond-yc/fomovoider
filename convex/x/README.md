@@ -43,7 +43,7 @@ Chat event reads come out of `chatEventReads` in the budget below.
 | `X_CLIENT_ID` | Required. |
 | `X_CLIENT_SECRET` | Only for a confidential X app. |
 | `X_DAILY_BUDGET_SPLIT_USD` | Daily dollars per kind, e.g. `chatEventReads=0.30,postReads=0.20`. Kinds not named keep the default split below. |
-| `X_DAILY_POST_READ_BUDGET`, `X_DAILY_DM_EVENT_READ_BUDGET`, `X_DAILY_CHAT_EVENT_READ_BUDGET`, `X_DAILY_WRITE_BUDGET` | Counts per X user per UTC day; each one overrides the split for its kind. Defaults 20, 10, 36, 5. |
+| `X_DAILY_POST_READ_BUDGET`, `X_DAILY_DM_EVENT_READ_BUDGET`, `X_DAILY_CHAT_EVENT_READ_BUDGET`, `X_DAILY_WRITE_BUDGET` | Counts per X user per UTC day; each one overrides the split for its kind. Defaults 40, 10, 30, 3. |
 | `X_FIXTURES` | `1` answers every X call from the connector's fixtures. Local backends only; never set it on a shared deployment. |
 
 ## Spend
@@ -52,10 +52,10 @@ The default split, per X user per UTC day (`DEFAULT_DAILY_BUDGET_SPLIT_USD` in `
 
 | Kind | Unit price | Share | Units |
 | --- | --- | --- | --- |
-| X Chat event reads (`chatEventReads`) | $0.010 (assumed, see below) | $0.36 | 36 |
-| Feed post reads (`postReads`) | $0.005 | $0.10 | 20 |
+| X Chat event reads (`chatEventReads`) | $0.010 (assumed, see below) | $0.30 | 30 |
+| Feed post reads (`postReads`) | $0.005 | $0.20 | 40 |
 | Legacy DM event reads (`dmEventReads`) | $0.010 | $0.10 | 10 |
-| Writes (`writes`, including X Chat sends) | $0.015 | $0.075 | 5 |
-| **Total** | | **$0.635** | about $19.70 in a 31-day month |
+| Writes (`writes`, including X Chat sends) | $0.015 | $0.045 | 3 |
+| **Total** | | **$0.645** | $19.995 in a 31-day month |
 
 That stays inside the $20 free credits. X publishes no X Chat price yet, so chat event reads are budgeted at the legacy DM event price. Prices may change; `x_usage` shows what was used.

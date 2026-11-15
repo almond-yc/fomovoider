@@ -10,8 +10,8 @@ function title(conversation: Conversation): string {
   return conversation.title ?? (conversation.participants.map((p) => p.displayName || `@${p.handle}`).join(", ") || "X Chat");
 }
 
-// X conversations, with encrypted X Chat rows decrypted on this phone once
-// X Chat is unlocked.
+// TEMPORARY: a stopgap X Chat inbox for testing. Delete once the app's Chats
+// tab merges X Chat through useXChatInbox (src/xchat/README.md).
 export default function XChatInboxScreen() {
   const chat = useXChat();
   const { results } = usePaginatedQuery(api.conversations.list, {}, { initialNumItems: 50 });

@@ -3,10 +3,17 @@ import { useAction, useConvex, useQuery } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Conversation, Message, Person } from "../connectors/types";
 import { type ChatEventRow, type ChatKeyContext, type ChatSendPayload, type DecryptOutcome, chatMessages, unlockedConversation } from "../connectors/x/chat";
-import { useXChat } from "./XChatProvider";
+import { type XChatContextValue, useOptionalXChat } from "./XChatProvider";
 
 const PREVIEWS = 10;
 const PREVIEW_EVENTS = 2;
+
+const NO_ENGINE: Pick<XChatContextValue, "status" | "meId" | "call" | "addSigningKeys"> = {
+  status: "locked",
+  meId: null,
+  call: () => Promise.reject(new Error("Mount <XChatProvider> to use X Chat")),
+  addSigningKeys: () => Promise.reject(new Error("Mount <XChatProvider> to use X Chat")),
+};
 
 export function isLockedXChat(conversation: Conversation | undefined | null): boolean {
   return conversation?.platform === "x" && conversation.unavailable?.reason === "locked";
@@ -26,7 +33,7 @@ function useMe(): Person | undefined {
 // Messages of one X Chat conversation, decrypted on this phone. Null for any
 // conversation that isn't a locked X Chat row (use the shared messages query).
 export function useXChatMessages(conversation: Conversation | undefined | null) {
-  const chat = useXChat();
+  const chat = useOptionalXChat() ?? NO_ENGINE;
   const me = useMe();
   const locked = isLockedXChat(conversation);
   const conversationId = conversation?.id ?? "";
@@ -88,7 +95,7 @@ export function useXChatMessages(conversation: Conversation | undefined | null) 
 // conversations get their last message decrypted on this phone. Plaintext
 // stays in memory; Convex keeps the locked row.
 export function useXChatInbox(conversations: Conversation[] | undefined): Conversation[] | undefined {
-  const chat = useXChat();
+  const chat = useOptionalXChat() ?? NO_ENGINE;
   const me = useMe();
   const convex = useConvex();
   const fetchEvents = useAction(api.x.chat.fetchEvents);

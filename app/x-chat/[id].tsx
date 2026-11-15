@@ -7,7 +7,8 @@ import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, TextInput, View } from "react-native";
 
-// One X Chat conversation, decrypted on this phone.
+// TEMPORARY: a stopgap X Chat conversation view for testing. Delete once the
+// app's conversation screen uses useXChatMessages (src/xchat/README.md).
 export default function XChatThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { results } = usePaginatedQuery(api.conversations.list, {}, { initialNumItems: 50 });

@@ -19,14 +19,14 @@ export const X_PRICE_USD: Record<BudgetKind, number> = {
 };
 
 // How the daily spend is split across kinds, in USD per X user per UTC day.
-// $0.635 a day stays under the $20 of free credits in a 31-day month. X Chat
+// $0.645 a day stays within the $20 of free credits in a 31-day month. X Chat
 // takes the largest share; the feed shrinks to make room.
 // Override with X_DAILY_BUDGET_SPLIT_USD, e.g. "chatEventReads=0.30,postReads=0.20".
 export const DEFAULT_DAILY_BUDGET_SPLIT_USD: Record<BudgetKind, number> = {
-  postReads: 0.1,
+  postReads: 0.2,
   dmEventReads: 0.1,
-  chatEventReads: 0.36,
-  writes: 0.075,
+  chatEventReads: 0.3,
+  writes: 0.045,
 };
 
 const BUDGET_KINDS = Object.keys(X_PRICE_USD) as BudgetKind[];

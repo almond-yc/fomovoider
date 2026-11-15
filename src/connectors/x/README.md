@@ -84,15 +84,15 @@ X API access is pay-per-use. The plan is to run on the **$20 of free credits** X
 
 | Budget (`XConfig`) | Default per day | Unit price | Worst case per day |
 |---|---|---|---|
-| `dailyChatEventReadBudget` (encrypted X Chat events) | 36 | $0.010 (assumed) | $0.36 |
-| `dailyPostReadBudget` (feed + mentions + expanded quoted/reposted posts) | 20 | $0.005 | $0.10 |
+| `dailyChatEventReadBudget` (encrypted X Chat events) | 30 | $0.010 (assumed) | $0.30 |
+| `dailyPostReadBudget` (feed + mentions + expanded quoted/reposted posts) | 40 | $0.005 | $0.20 |
 | `dailyDmEventReadBudget` (legacy DMs) | 10 | $0.010 | $0.10 |
-| `dailyWriteBudget` (replies $0.010, DMs and X Chat sends $0.015) | 5 | up to $0.015 | $0.075 |
-| **Total** | | | **$0.635/day, about $19.70 a month** |
+| `dailyWriteBudget` (replies $0.010, DMs and X Chat sends $0.015) | 3 | up to $0.015 | $0.045 |
+| **Total** | | | **$0.645/day, $19.995 in a 31-day month** |
 
 The split is set in dollars with `X_DAILY_BUDGET_SPLIT_USD` (e.g. `chatEventReads=0.30,postReads=0.20`); a per-kind count env such as `X_DAILY_POST_READ_BUDGET` overrides its kind.
 
-That leaves about $0.30 a month for `/2/users/me` ($0.01, once per session per app run) and for expansion billing, which third parties report X starts charging on 2026-11-22 (about $0.01 per included user). docs.x.com does not confirm that report. The trade-off is coverage: a typical home feed produces about 500 posts a day and the default shows the newest 20. Each extra 100 posts a day costs about $15 a month. Budgets count per X user per UTC day. Capacity is reserved atomically before each request (two reads per requested post, to cover expanded quoted or reposted posts) and unused capacity is returned afterwards, so parallel calls can't overspend; the usage store's `reserve` must therefore be atomic. In the feed, mentions and the home timeline are read in the same rounds, so neither stream can use up the budget before the other is read. Pass a persistent `usage` store so the count survives restarts.
+The budgets use the whole $20, so `/2/users/me` ($0.01, once per session per app run) and expansion billing, which the budgets don't count, can push a heavy month slightly over; the $20 spending cap in the Developer Console is the hard stop. Third parties report that X starts charging expansion billing on 2026-11-22 (about $0.01 per included user). docs.x.com does not confirm that report. The trade-off is coverage: a typical home feed produces about 500 posts a day and the default shows the newest 40. Each extra 100 posts a day costs about $15 a month. Budgets count per X user per UTC day. Capacity is reserved atomically before each request (two reads per requested post, to cover expanded quoted or reposted posts) and unused capacity is returned afterwards, so parallel calls can't overspend; the usage store's `reserve` must therefore be atomic. In the feed, mentions and the home timeline are read in the same rounds, so neither stream can use up the budget before the other is read. Pass a persistent `usage` store so the count survives restarts.
 
 ## Setup for a live account
 

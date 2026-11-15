@@ -4,8 +4,9 @@
 // the few the connector parses to React Native. Cookies and request headers
 // are never read or forwarded.
 
-// GraphQL operations (fb_api_req_friendly_name) whose responses we parse.
-export const CAPTURED_OPERATIONS = [
+// GraphQL operations (fb_api_req_friendly_name) the feed and story parsers
+// read. Other plugins (DMs) pass their own to captureHookJs.
+export const FEED_OPERATIONS = [
   "PolarisFeedRootPaginationCachedQuery_subscribe",
   "PolarisFeedRootPaginationCachedQuery",
   "PolarisStoriesV3ReelPageGalleryQuery",
@@ -21,10 +22,10 @@ export type HookMessage =
   | { type: "ig:location"; href: string; title: string }
   | { type: "ig:result"; id: number; ok: boolean; value: string };
 
-export const CAPTURE_HOOK_JS = String.raw`(function () {
+export const captureHookJs = (operations: string[]) => String.raw`(function () {
   if (window.__fomoHooked) return;
   window.__fomoHooked = true;
-  var OPS = ${JSON.stringify(CAPTURED_OPERATIONS)};
+  var OPS = ${JSON.stringify(operations)};
   var KEYS = ${JSON.stringify(SSR_KEYS)};
   function send(msg) {
     try { window.ReactNativeWebView.postMessage(JSON.stringify(msg)); } catch (e) {}

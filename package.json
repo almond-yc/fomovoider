@@ -64,13 +64,14 @@
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "x:smoke": "tsx scripts/x-live-smoke.mjs",
     "x:chat-engine": "node scripts/build-xchat-engine.mjs"
   },
-  "private": true
+  "private": true,
+  "packageManager": "pnpm@10.34.5+sha512.a4ee05f2f73658255bd6a89859c065a45c28a57daefae2c893a168ee2b73168c37b91e83e57ea67654ad03f03031746430e8bce38e362e042605fb8abc80192e"
 }

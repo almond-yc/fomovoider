@@ -9,6 +9,7 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
+import { deletePost } from "./lib/posts";
 import { vAccountStatus, vConnectorError, vPerson, vPlatform, vSession } from "./lib/validators";
 
 const PURGE_BATCH = 100;
@@ -57,13 +58,19 @@ export const connect = mutation({
       )
       .unique();
     if (existing) {
-      await ctx.db.patch(existing._id, { session, status: "pending", lastError: undefined });
+      await ctx.db.patch(existing._id, {
+        session,
+        sessionVersion: (existing.sessionVersion ?? 0) + 1,
+        status: "pending",
+        lastError: undefined,
+      });
       return existing._id;
     }
     return await ctx.db.insert("connectedAccounts", {
       userId,
       platform: session.platform,
       session,
+      sessionVersion: 1,
       status: "pending",
     });
   },
@@ -145,8 +152,8 @@ async function resetPlatform(
   await ctx.scheduler.runAfter(0, internal.accounts.purgeContent, { userId, platform, accountId });
 }
 
-// Deletes a user's cached posts, conversations and messages of one platform
-// in batches, then marks the account (if any) active again.
+// Deletes a user's cached posts (with their stored media and states),
+// conversations and messages of one platform in batches, then marks the account (if any) active again.
 export const purgeContent = internalMutation({
   args: {
     userId: v.id("users"),
@@ -171,7 +178,8 @@ export const purgeContent = internalMutation({
       .query("messages")
       .withIndex("by_userId_and_id", (q) => q.eq("userId", userId).gte("id", from).lt("id", to))
       .take(PURGE_BATCH);
-    for (const doc of [...posts, ...conversations, ...messages]) await ctx.db.delete(doc._id);
+    for (const post of posts) await deletePost(ctx, post);
+    for (const doc of [...conversations, ...messages]) await ctx.db.delete(doc._id);
     if (Math.max(posts.length, conversations.length, messages.length) === PURGE_BATCH) {
       await ctx.scheduler.runAfter(0, internal.accounts.purgeContent, args);
       return null;
@@ -185,17 +193,37 @@ export const purgeContent = internalMutation({
 });
 
 // Persists a session a connector refreshed mid-call (onSessionRefreshed).
+// Pass expectedVersion, the sessionVersion of the account the connector read
+// (internal.accounts.get) before refreshing: if the session was replaced since
+// (the user reconnected, or another refresh landed), the write is refused with
+// { saved: false } instead of overwriting the newer session. Without
+// expectedVersion the write always goes through.
 export const saveSession = internalMutation({
-  args: { accountId: v.id("connectedAccounts"), session: vSession },
-  returns: v.null(),
-  handler: async (ctx, { accountId, session }) => {
+  args: {
+    accountId: v.id("connectedAccounts"),
+    session: vSession,
+    expectedVersion: v.optional(v.number()),
+  },
+  returns: v.union(
+    v.object({ saved: v.literal(true), sessionVersion: v.number() }),
+    v.object({
+      saved: v.literal(false),
+      reason: v.literal("session_changed"),
+      sessionVersion: v.number(),
+    }),
+  ),
+  handler: async (ctx, { accountId, session, expectedVersion }) => {
     const account = await ctx.db.get(accountId);
     if (!account) throw new Error("Connected account not found");
     if (session.platform !== account.platform) {
       throw new Error(`Session for ${session.platform} on a ${account.platform} account`);
     }
-    await ctx.db.patch(accountId, { session });
-    return null;
+    const current = account.sessionVersion ?? 0;
+    if (expectedVersion !== undefined && expectedVersion !== current) {
+      return { saved: false as const, reason: "session_changed" as const, sessionVersion: current };
+    }
+    await ctx.db.patch(accountId, { session, sessionVersion: current + 1 });
+    return { saved: true as const, sessionVersion: current + 1 };
   },
 });
 

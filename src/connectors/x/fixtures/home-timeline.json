@@ -1,0 +1,198 @@
+{
+  "data": [
+    {
+      "id": "1857000000000000006",
+      "text": "Shipping notes &amp; changelog: https://t.co/abc123 https://t.co/pic111",
+      "author_id": "783214",
+      "created_at": "2026-11-15T18:06:00.000Z",
+      "conversation_id": "1857000000000000006",
+      "edit_history_tweet_ids": [
+        "1857000000000000006"
+      ],
+      "attachments": {
+        "media_keys": [
+          "3_1857000000000000100"
+        ]
+      },
+      "entities": {
+        "urls": [
+          {
+            "start": 32,
+            "end": 55,
+            "url": "https://t.co/abc123",
+            "expanded_url": "https://example.dev/changelog",
+            "display_url": "example.dev/changelog"
+          },
+          {
+            "start": 56,
+            "end": 79,
+            "url": "https://t.co/pic111",
+            "expanded_url": "https://x.com/X/status/1857000000000000006/photo/1",
+            "display_url": "pic.x.com/pic111",
+            "media_key": "3_1857000000000000100"
+          }
+        ]
+      }
+    },
+    {
+      "id": "1857000000000000005",
+      "text": "RT @API: New video walkthrough of the v2 endpoints",
+      "author_id": "1234567890",
+      "created_at": "2026-11-15T18:05:00.000Z",
+      "conversation_id": "1856000000000000001",
+      "edit_history_tweet_ids": [
+        "1857000000000000005"
+      ],
+      "referenced_tweets": [
+        {
+          "type": "retweeted",
+          "id": "1856000000000000001"
+        }
+      ]
+    },
+    {
+      "id": "1857000000000000004",
+      "text": "This is a great thread https://t.co/q1q1q1",
+      "author_id": "1234567890",
+      "created_at": "2026-11-15T18:04:00.000Z",
+      "conversation_id": "1857000000000000004",
+      "edit_history_tweet_ids": [
+        "1857000000000000004"
+      ],
+      "referenced_tweets": [
+        {
+          "type": "quoted",
+          "id": "1856000000000000002"
+        }
+      ],
+      "entities": {
+        "urls": [
+          {
+            "start": 23,
+            "end": 46,
+            "url": "https://t.co/q1q1q1",
+            "expanded_url": "https://twitter.com/API/status/1856000000000000002",
+            "display_url": "twitter.com/API/status/185…"
+          }
+        ]
+      }
+    },
+    {
+      "id": "1857000000000000003",
+      "text": "Long post: the first 280 characters of a longer note… https://t.co/n0n0n0",
+      "author_id": "783214",
+      "created_at": "2026-11-15T18:03:00.000Z",
+      "conversation_id": "1857000000000000003",
+      "edit_history_tweet_ids": [
+        "1857000000000000003"
+      ],
+      "entities": {
+        "urls": [
+          {
+            "start": 54,
+            "end": 77,
+            "url": "https://t.co/n0n0n0",
+            "expanded_url": "https://x.com/i/web/status/1857000000000000003",
+            "display_url": "x.com/i/web/status/1…"
+          }
+        ]
+      },
+      "note_tweet": {
+        "text": "Long post: the first 280 characters of a longer note, and then the rest of it, with a link https://t.co/docs01 at the end.",
+        "entities": {
+          "urls": [
+            {
+              "start": 91,
+              "end": 114,
+              "url": "https://t.co/docs01",
+              "expanded_url": "https://docs.x.com/x-api",
+              "display_url": "docs.x.com/x-api"
+            }
+          ]
+        }
+      },
+      "attachments": {
+        "media_keys": [
+          "7_1856000000000000101"
+        ]
+      }
+    }
+  ],
+  "includes": {
+    "users": [
+      {
+        "id": "783214",
+        "name": "X",
+        "username": "X",
+        "profile_image_url": "https://pbs.twimg.com/profile_images/2/x_normal.jpg"
+      },
+      {
+        "id": "1234567890",
+        "name": "Dev Person",
+        "username": "developer"
+      },
+      {
+        "id": "6253282",
+        "name": "X API",
+        "username": "API"
+      }
+    ],
+    "media": [
+      {
+        "media_key": "3_1857000000000000100",
+        "type": "photo",
+        "url": "https://pbs.twimg.com/media/changelog.jpg",
+        "width": 1200,
+        "height": 675,
+        "alt_text": "Changelog screenshot"
+      },
+      {
+        "media_key": "7_1856000000000000101",
+        "type": "video",
+        "preview_image_url": "https://pbs.twimg.com/ext_tw_video_thumb/walkthrough.jpg",
+        "width": 1280,
+        "height": 720,
+        "duration_ms": 95500,
+        "alt_text": "Walkthrough video",
+        "variants": [
+          {
+            "content_type": "application/x-mpegURL",
+            "url": "https://video.twimg.com/ext_tw_video/walkthrough.m3u8"
+          },
+          {
+            "content_type": "video/mp4",
+            "bit_rate": 832000,
+            "url": "https://video.twimg.com/ext_tw_video/vid/640x360/walkthrough.mp4"
+          },
+          {
+            "content_type": "video/mp4",
+            "bit_rate": 2176000,
+            "url": "https://video.twimg.com/ext_tw_video/vid/1280x720/walkthrough.mp4"
+          }
+        ]
+      }
+    ],
+    "tweets": [
+      {
+        "id": "1856000000000000001",
+        "text": "New video walkthrough of the v2 endpoints",
+        "author_id": "6253282",
+        "created_at": "2026-11-14T16:00:00.000Z",
+        "conversation_id": "1856000000000000001"
+      },
+      {
+        "id": "1856000000000000002",
+        "text": "Thread: how we built v2 &lt;3",
+        "author_id": "6253282",
+        "created_at": "2026-11-14T12:00:00.000Z",
+        "conversation_id": "1856000000000000002"
+      }
+    ]
+  },
+  "meta": {
+    "result_count": 4,
+    "newest_id": "1857000000000000006",
+    "oldest_id": "1857000000000000003",
+    "next_token": "7140dibdnow9c7btw421dyz6jism75z99gyxd8egarsc4"
+  }
+}

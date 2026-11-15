@@ -1,0 +1,6 @@
+{
+  "title": "Forbidden",
+  "detail": "The recipient is not accepting Direct Messages from you.",
+  "type": "https://api.x.com/2/problems/dm-recipient-not-accepting",
+  "status": 403
+}

@@ -1,0 +1,6 @@
+{
+  "title": "Forbidden",
+  "detail": "This recipient can only be messaged with encrypted X Chat.",
+  "type": "https://api.x.com/2/problems/dm-recipient-encrypted-unavailable",
+  "status": 403
+}

@@ -12,10 +12,12 @@ import type { FeedPost } from './types';
 
 export function ContentItem({
   post,
+  title = post.title,
   saved = false,
   onOpen,
 }: {
   post: FeedPost;
+  title?: string;
   saved?: boolean;
   onOpen?: () => void;
 }) {
@@ -39,7 +41,7 @@ export function ContentItem({
           )}
           {post.format === 'story' ? <Text className="text-sm text-muted-foreground"> · Story</Text> : null}
         </Text>
-        {post.title ? <Text className="font-title text-lg leading-6">{post.title}</Text> : null}
+        {title ? <Text className="font-title text-lg leading-6">{title}</Text> : null}
         {post.text ? <Text className="text-[15px] leading-[22px]">{post.text}</Text> : null}
         {post.media.map((m) => (
           <ContentMedia key={m.url} media={m} />

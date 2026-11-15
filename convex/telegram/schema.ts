@@ -32,6 +32,19 @@ export const telegramTables = {
     accessHash: v.string(),
   }).index("by_sessionId_and_peer", ["sessionId", "peer"]),
 
+  // Per session and conversation: how far its history is stored. Messages
+  // up to syncedThrough (a Telegram message number) are in `messages`. While
+  // a long catch-up is cut off by the per-run cap, pendingTop is where it
+  // ends and pendingCursor where the next run resumes. Previews written by
+  // send and markRead never move it.
+  telegram_history: defineTable({
+    sessionId: v.id("telegram_sessions"),
+    conversationId: v.string(),
+    syncedThrough: v.number(),
+    pendingTop: v.optional(v.number()),
+    pendingCursor: v.optional(v.string()),
+  }).index("by_sessionId_and_conversationId", ["sessionId", "conversationId"]),
+
   // One sync at a time per account, the last app request (requestSync's rate
   // limit), and Telegram's FLOOD_WAIT, which holds the lease until it passes.
   telegram_sync_locks: defineTable({

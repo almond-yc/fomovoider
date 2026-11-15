@@ -56,6 +56,7 @@ The person scans the QR code in Telegram → Settings → Devices → Link Deskt
 | `messages` | `messages.getHistory` | Newest first, up to 100; cursor `m1\|<oldest id>`. Extra option `after` (a message id) returns only newer messages, for incremental syncs. Service messages (joins, pins, calls) are skipped. |
 | `send` | `messages.sendMessage` | Text only (`sendMedia: false`). Runs once and is never retried. |
 | `markRead` | `messages.readHistory` / `channels.readHistory` | Reads up to the newest message, as opening the chat in Telegram does. |
+| `chats` (extra) | `messages.getDialogs` | `conversations` plus each chat's newest Telegram message number, service messages included, so a sync can tell when history moved. `limit` counts dialogs before filtering, so a page can hold no chats and still have more after it. |
 | `conversation` (extra) | `messages.getPeerDialogs` | One conversation as the chat list shows it now; used after `send` and `markRead`. |
 | `feed` | — | `unsupported`. |
 
@@ -67,6 +68,7 @@ Call `close()` when done: the connector keeps one MTProto connection per session
 - `Person.handle` is the username (or the first active one of several), or `""` when the person has none. `displayName` is the first and last name, and `profileUrl` is `https://t.me/<username>`. Phone numbers are never read. `avatarUrl` is unset, because Telegram photos are downloaded over MTProto and there's no URL.
 - A supergroup message posted as the group or a channel (anonymous admins) has that chat as its `sender`.
 - `participants` holds the other person in a 1:1 chat. For groups it's empty and `title` is set: listing members costs a call per group.
+- `lastMessage` is unset when the chat's newest message is a service message.
 - `unreadCount` is Telegram's own. `updatedAt` is the last message's date.
 - **Media isn't downloaded** (`media: []`). The text names what was attached, before any caption: `[Photo] Look at this view`, `[Sticker 👍]`, `[Voice message]`, `[File: menu.pdf]`, `[Poll: Where?]`. Link previews add nothing, since the link is already in the text.
 - `chatForbidden`/`channelForbidden` dialogs (removed from the group) come back with `unavailable: { reason: "unsupported" }`.

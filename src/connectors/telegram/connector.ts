@@ -106,7 +106,17 @@ export class TelegramConnector implements Connector {
   // The chat list, most recent first: 1:1 chats, groups and supergroups.
   // Broadcast channels, Saved Messages and the archive folder are left out;
   // secret chats never appear (they exist only on the devices that hold them).
+  // `limit` counts Telegram's dialogs before that filtering, so a page can
+  // hold fewer items (even none) and still have more after it.
   async conversations(session: Session, opts: { cursor?: string; limit: number }): Promise<Page<Conversation>> {
+    const page = await this.chats(session, opts);
+    return { ...page, items: page.items.map((c) => c.conversation) };
+  }
+
+  // conversations() plus each chat's newest Telegram message number, which
+  // counts service messages (pins, joins, calls) that never become a
+  // Message, so a sync can tell when a chat's history moved.
+  async chats(session: Session, opts: { cursor?: string; limit: number }): Promise<Page<{ conversation: Conversation; topMessageId: number }>> {
     return this.call(session, async (client, deviceId) => {
       const me = await this.me(client, deviceId);
       const offset = parseDialogCursor(opts.cursor);
@@ -118,7 +128,10 @@ export class TelegramConnector implements Connector {
       const tops = topMessages(res);
       const items = dialogs
         .filter((d) => mapper.isConversation(peerOf(d.peer as TlObject)))
-        .map((d) => mapper.conversation(d, tops.get(`${peerKey(peerOf(d.peer as TlObject))}:${d.topMessage}`)));
+        .map((d) => ({
+          conversation: mapper.conversation(d, tops.get(`${peerKey(peerOf(d.peer as TlObject))}:${d.topMessage}`)),
+          topMessageId: d.topMessage as number,
+        }));
       const last = dialogs.at(-1);
       const lastTop = last && tops.get(`${peerKey(peerOf(last.peer as TlObject))}:${last.topMessage}`);
       const caughtUp = res._ === "messages.dialogs" || all.length < limit || !lastTop;

@@ -85,6 +85,41 @@ export const storedConversations = internalQuery({
   },
 });
 
+const vCheckpoint = v.object({ syncedThrough: v.number(), pendingTop: v.optional(v.number()), pendingCursor: v.optional(v.string()) });
+
+export const historyCheckpoints = internalQuery({
+  args: { sessionId: v.id("telegram_sessions"), ids: v.array(v.string()) },
+  returns: v.record(v.string(), vCheckpoint),
+  handler: async (ctx, { sessionId, ids }) => {
+    const out: Record<string, { syncedThrough: number; pendingTop?: number; pendingCursor?: string }> = {};
+    for (const conversationId of ids) {
+      const row = await ctx.db
+        .query("telegram_history")
+        .withIndex("by_sessionId_and_conversationId", (q) => q.eq("sessionId", sessionId).eq("conversationId", conversationId))
+        .unique();
+      if (row) out[conversationId] = { syncedThrough: row.syncedThrough, pendingTop: row.pendingTop, pendingCursor: row.pendingCursor };
+    }
+    return out;
+  },
+});
+
+// Replaces the checkpoint, so leaving pendingTop and pendingCursor out
+// clears a finished catch-up.
+export const saveCheckpoint = internalMutation({
+  args: { sessionId: v.id("telegram_sessions"), conversationId: v.string(), checkpoint: vCheckpoint },
+  returns: v.null(),
+  handler: async (ctx, { sessionId, conversationId, checkpoint }) => {
+    const row = await ctx.db
+      .query("telegram_history")
+      .withIndex("by_sessionId_and_conversationId", (q) => q.eq("sessionId", sessionId).eq("conversationId", conversationId))
+      .unique();
+    const doc = { sessionId, conversationId, ...checkpoint };
+    if (row) await ctx.db.replace(row._id, doc);
+    else await ctx.db.insert("telegram_history", doc);
+    return null;
+  },
+});
+
 async function lockOf(ctx: QueryCtx, accountId: Id<"connectedAccounts">) {
   return await ctx.db
     .query("telegram_sync_locks")
@@ -232,9 +267,13 @@ export const cleanup = internalMutation({
       const peers = await ctx.db
         .query("telegram_peers")
         .withIndex("by_sessionId_and_peer", (q) => q.eq("sessionId", session._id))
-        .take(1000);
-      for (const peer of peers) await ctx.db.delete(peer._id);
-      if (peers.length === 1000) continue;
+        .take(500);
+      const history = await ctx.db
+        .query("telegram_history")
+        .withIndex("by_sessionId_and_conversationId", (q) => q.eq("sessionId", session._id))
+        .take(500);
+      for (const row of [...peers, ...history]) await ctx.db.delete(row._id);
+      if (peers.length === 500 || history.length === 500) continue;
       await ctx.db.delete(session._id);
       await ctx.scheduler.runAfter(0, internal.telegram.sync.logOut, { secret: session.secret });
     }

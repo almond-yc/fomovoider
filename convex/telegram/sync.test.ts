@@ -33,7 +33,7 @@ async function signedIn() {
   const t = convexTest(schema, modules);
   const userId = await t.run((ctx) => ctx.db.insert("users", {}));
   const as = t.withIdentity({ subject: `${userId}|session` });
-  const all = <T extends "conversations" | "messages" | "telegram_sessions" | "telegram_logins" | "telegram_peers" | "connectedAccounts" | "telegram_sync_locks">(table: T) =>
+  const all = <T extends "conversations" | "messages" | "telegram_sessions" | "telegram_logins" | "telegram_peers" | "connectedAccounts" | "telegram_sync_locks" | "telegram_history">(table: T) =>
     t.run((ctx) => ctx.db.query(table).collect());
   return { t, userId, as, all };
 }
@@ -140,6 +140,110 @@ describe("telegram sync", () => {
     expect(history.map((h) => [h.peer, h.minId])).toEqual([[expect.objectContaining({ userId: "5000000002" }), 105]]);
     expect((await all("conversations")).find((c) => c.id === BOB)).toMatchObject({ unreadCount: 3, lastMessage: { id: `${BOB}:107`, text: "Hello?" } });
     expect((await all("messages")).some((m) => m.id === `${BOB}:107`)).toBe(true);
+  });
+
+  test("stores media messages whose raw TL holds bytes", async () => {
+    const { sync, all, account } = await connected();
+    const history = fixture("history-bob");
+    history.messages[2].media.photo.fileReference = new Uint8Array([1, 2, 3]);
+    tg.transport.on("messages.getHistory", () => history);
+    const dialogs = fixture("dialogs");
+    dialogs.messages.find((m: any) => m.id === 100).media.photo.fileReference = new Uint8Array([4]);
+    tg.transport.on("messages.getDialogs", () => dialogs);
+    await sync();
+    expect(await account()).toMatchObject({ status: "active" });
+    expect((await all("messages")).some((m) => m.text === "[Photo] Look at this view")).toBe(true);
+  });
+
+  test("a preview refresh from markRead doesn't skip the messages behind it", async () => {
+    const { t, sync, all, accountId } = await connected();
+    await sync();
+    const top = { _: "message", id: 107, peerId: { _: "peerUser", userId: "5000000002" }, date: 1763236900, message: "Missed me?" };
+    const peerDialogs = fixture("peer-dialogs-bob");
+    peerDialogs.dialogs[0].topMessage = 107;
+    peerDialogs.messages = [top];
+    tg.transport.on("messages.getPeerDialogs", () => peerDialogs);
+    tg.transport.on("messages.getHistory", (req) => ({ _: "messages.messages", messages: Number(req.minId) < 107 ? [top] : [], chats: [], users: [] }));
+    expect(await t.action(internal.telegram.sync.markRead, { accountId, conversationId: BOB })).toEqual({ ok: true });
+    expect((await all("conversations")).find((c) => c.id === BOB)?.lastMessage?.id).toBe(`${BOB}:107`);
+    expect((await all("messages")).some((m) => m.id === `${BOB}:107`)).toBe(false);
+
+    const dialogs = fixture("dialogs");
+    dialogs.dialogs.find((d: any) => d.peer.userId === "5000000002").topMessage = 107;
+    dialogs.messages.push(top);
+    tg.transport.on("messages.getDialogs", () => dialogs);
+    await sync();
+    expect((await all("messages")).some((m) => m.id === `${BOB}:107`)).toBe(true);
+  });
+
+  test("fetches history for a chat whose newest message is a service message", async () => {
+    const { sync, all } = await connected();
+    const dialogs = fixture("dialogs");
+    dialogs.dialogs.find((d: any) => d.peer.userId === "5000000002").topMessage = 108;
+    dialogs.messages = dialogs.messages.filter((m: any) => m.id !== 105);
+    dialogs.messages.push({ _: "messageService", id: 108, peerId: { _: "peerUser", userId: "5000000002" }, date: 1763236900, action: { _: "messageActionPinMessage" } });
+    tg.transport.on("messages.getDialogs", () => dialogs);
+    await sync();
+    expect((await all("messages")).filter((m) => m.conversationId === BOB)).toHaveLength(3);
+  });
+
+  test("pages past dialogs it leaves out to find chats", async () => {
+    const { sync, all } = await connected();
+    const channels = Array.from({ length: 100 }, (_, i) => ({ _: "channel", id: String(1600000000 + i), broadcast: true, accessHash: "1", title: `Channel ${i}`, date: 1 }));
+    const first = {
+      _: "messages.dialogsSlice",
+      count: 106,
+      dialogs: channels.map((c, i) => ({ _: "dialog", peer: { _: "peerChannel", channelId: c.id }, topMessage: 1000 + i, unreadCount: 0 })),
+      messages: channels.map((c, i) => ({ _: "message", id: 1000 + i, peerId: { _: "peerChannel", channelId: c.id }, date: 1763236000 - i, message: "news", post: true })),
+      chats: channels,
+      users: [],
+    };
+    tg.transport.on("messages.getDialogs", () => first, () => fixture("dialogs"));
+    await sync();
+    expect(tg.transport.callsTo("messages.getDialogs")[1]).toMatchObject({ offsetPeer: { _: "inputPeerChannel", channelId: "1600000099" } });
+    expect((await all("conversations")).map((c) => c.id)).toContain(BOB);
+  });
+
+  test("a long catch-up resumes where the per-run cap stopped it", async () => {
+    const { sync, all } = await connected();
+    await sync();
+    const top = 105 + 250;
+    const msg = (id: number) => ({ _: "message", id, peerId: { _: "peerUser", userId: "5000000002" }, date: 1763236800 + id, message: `m${id}` });
+    const dialogs = fixture("dialogs");
+    dialogs.dialogs.find((d: any) => d.peer.userId === "5000000002").topMessage = top;
+    dialogs.messages.push(msg(top));
+    tg.transport.on("messages.getDialogs", () => dialogs);
+    tg.transport.on("messages.getHistory", (req) => {
+      const minId = Number(req.minId);
+      const below = Number(req.offsetId) || top + 1;
+      const ids = [];
+      for (let id = below - 1; id > minId && ids.length < Number(req.limit); id--) ids.push(id);
+      return { _: "messages.messagesSlice", count: top - minId, messages: ids.map(msg), chats: [], users: [] };
+    });
+    await sync();
+    const bobIds = async () => (await all("messages")).filter((m) => m.conversationId === BOB).map((m) => Number(m.id.split(":").at(-1)));
+    expect((await bobIds()).filter((id) => id > 105)).toHaveLength(200);
+    const [cp] = (await all("telegram_history")).filter((h) => h.conversationId === BOB);
+    expect(cp).toMatchObject({ syncedThrough: 105, pendingTop: top, pendingCursor: "m1|156" });
+    await sync();
+    expect((await bobIds()).filter((id) => id > 105)).toHaveLength(250);
+    expect((await all("telegram_history")).find((h) => h.conversationId === BOB)).toMatchObject({ syncedThrough: top });
+    expect((await all("telegram_history")).find((h) => h.conversationId === BOB)).not.toHaveProperty("pendingTop");
+  });
+
+  test("an error from a sync the user reconnected under doesn't touch the new session", async () => {
+    const { t, sync, account, userId } = await connected();
+    await sync();
+    const next = await t.run(async (ctx) =>
+      ctx.db.insert("telegram_sessions", { userId, secret: await encryptSecret(MOCK_SESSION_STRING), telegramUserId: ME, createdAt: Date.now() }),
+    );
+    tg.transport.on("messages.getDialogs", async () => {
+      await t.mutation(internal.accounts.connectDevice, { userId, platform: "telegram", deviceId: next });
+      throw new TelegramRpcError(420, "FLOOD_WAIT_60");
+    });
+    await sync();
+    expect(await account()).toMatchObject({ status: "pending", session: { deviceId: next } });
+    expect((await account())?.lastError).toBeUndefined();
   });
 
   test("never uses another user's Telegram session, even if an account points at it", async () => {

@@ -6,6 +6,7 @@ import {
   relativeTime,
   sendErrorText,
   unavailableText,
+  unconfirmedPending,
   withDaySeparators,
 } from "./format";
 import type { ChatConversation, ChatMessage } from "./types";
@@ -93,5 +94,15 @@ describe("copy", () => {
     expect(sendErrorText({ kind: "platform", message: "X refused the message" }, "x")).toBe("X refused the message");
     expect(unavailableText("encrypted", "x")).toBe("Encrypted chat. Open it in X.");
     expect(unavailableText("locked", "x")).toBe("Encrypted. Unlock X Chat to read.");
+  });
+});
+
+describe("optimistic handover", () => {
+  test("a sent bubble stays until its stored row arrives, then only the row shows", () => {
+    const sending: { key: string; sentId?: string } = { key: "p1" };
+    const accepted = { key: "p2", sentId: "x:m2" };
+    expect(unconfirmedPending([sending, accepted], null)).toEqual([sending, accepted]);
+    expect(unconfirmedPending([sending, accepted], [message("x:m1", NOW)])).toEqual([sending, accepted]);
+    expect(unconfirmedPending([sending, accepted], [message("x:m2", NOW), message("x:m1", NOW)])).toEqual([sending]);
   });
 });

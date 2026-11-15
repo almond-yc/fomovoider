@@ -133,3 +133,12 @@ export function sendErrorText(error: ConnectorError, platform: string, locale?: 
       return error.message;
   }
 }
+
+// Optimistic sends still to show: a send the server accepted keeps its bubble
+// until the stored row with that id arrives, so the message never shows twice
+// and never blinks out between the action returning and the list updating.
+export function unconfirmedPending<P extends { sentId?: string }>(pending: P[], messages: { id: string }[] | null): P[] {
+  if (!messages) return pending;
+  const shown = new Set(messages.map((m) => m.id));
+  return pending.filter((p) => !p.sentId || !shown.has(p.sentId));
+}

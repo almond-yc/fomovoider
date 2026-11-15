@@ -254,6 +254,23 @@ test("a session_expired from a session the user has since replaced leaves the ne
   expect(await t.run((ctx) => ctx.db.get(alice.accounts.x!))).toMatchObject({ status: "active", sessionVersion: 2 });
 });
 
+test("Instagram conversations are read-only until Instagram registers a sender", async () => {
+  const calls = stubFetch();
+  const { signUp } = await setup();
+  const alice = await signUp("alice-token", ["instagram"]);
+  await alice.addConversation("instagram:c1", { unreadCount: 1 });
+
+  expect(await alice.as.query(api.conversations.get, { conversationId: "instagram:c1" })).toMatchObject({
+    sendBlocked: { kind: "unsupported", capability: "sendMessage" },
+  });
+  expect(await alice.as.action(api.messages.send, { conversationId: "instagram:c1", text: "hi" })).toEqual({
+    ok: false,
+    error: { kind: "unsupported", capability: "sendMessage" },
+  });
+  expect(await alice.as.action(api.messages.markRead, { conversationId: "instagram:c1" })).toBeNull();
+  expect(calls).toEqual([]);
+});
+
 describe("messages.markRead", () => {
   test("is a no-op for X, which has no markRead", async () => {
     const calls = stubFetch();

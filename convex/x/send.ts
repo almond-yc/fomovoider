@@ -26,7 +26,9 @@ export const message = internalAction({
     const sent: Message = await withX(ctx, account, (x, session) => x.send(session, conversationId as Id, { text }));
     const { raw: _raw, ...stored } = sent;
     await ctx.runMutation(internal.ingest.upsertMessages, { accountId, messages: [stored] });
-    return { ...stored, sentAt: Date.parse(stored.sentAt) };
+    const message = { ...stored, sentAt: Date.parse(stored.sentAt) };
+    await ctx.runMutation(internal.x.state.markSent, { accountId, message });
+    return message;
   },
 });
 
@@ -39,7 +41,7 @@ export const reply = action({
   handler: async (ctx, { postId, text }): Promise<{ id: string; createdAt: number; permalink: string }> => {
     const userId = await requireUserId(ctx);
     const { account, post } = await ctx.runQuery(internal.x.state.sendTarget, { userId, postId });
-    if (!post) throw new ConvexError<ConnectorError>({ kind: "platform", message: "Post not found" });
+    if (!post || post.platform !== "x") throw new ConvexError<ConnectorError>({ kind: "platform", message: "Post not found" });
     const sent: Post = await withX(ctx, account, (x, session) => x.reply!(session, postId as Id, { text }));
     await ctx.runMutation(internal.ingest.upsertPosts, { accountId: account!._id, posts: [sent] });
     return { id: sent.id, createdAt: Date.parse(sent.createdAt), permalink: sent.permalink };

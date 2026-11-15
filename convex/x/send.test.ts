@@ -52,7 +52,23 @@ describe("internal.x.send.message", () => {
     ]);
     const stored = await t.run((ctx) => ctx.db.query("messages").collect());
     expect(stored.find((m) => m.id === sent.id)).toMatchObject({ text: "See you Tuesday", isMine: true });
+    const conversation = await t.run((ctx) => ctx.db.query("conversations").collect());
+    expect(conversation.find((c) => c.id === DM)).toMatchObject({ lastMessage: { id: sent.id, text: "See you Tuesday" }, updatedAt: sent.sentAt });
     expect(await writesUsed()).toBe(1);
+  });
+
+  test("keeps a newer message as the conversation preview", async () => {
+    const { t, accountId } = await setup();
+    const future = Date.now() + 60_000;
+    await t.run(async (ctx) => {
+      const c = (await ctx.db.query("conversations").collect()).find((c) => c.id === DM)!;
+      await ctx.db.patch(c._id, { updatedAt: future });
+    });
+    stubFetch();
+    await t.action(internal.x.send.message, { accountId, conversationId: DM, text: "late" });
+    const c = (await t.run((ctx) => ctx.db.query("conversations").collect())).find((c) => c.id === DM)!;
+    expect(c.updatedAt).toBe(future);
+    expect(c.lastMessage?.text).not.toBe("late");
   });
 
   test("refuses without calling X when the account is expired", async () => {
@@ -109,5 +125,17 @@ describe("api.x.send.reply", () => {
     await expect(other.action(api.x.send.reply, { postId: MENTION, text: "hi" })).rejects.toMatchObject({ data: { message: "Post not found" } });
     await expect(t.action(api.x.send.reply, { postId: MENTION, text: "hi" })).rejects.toThrow("Not signed in");
     expect(calls).toEqual([]);
+  });
+
+  test("refuses another platform's post without using a write", async () => {
+    const { t, as, writesUsed } = await setup();
+    await t.run(async (ctx) => {
+      const { _id, _creationTime, ...post } = (await ctx.db.query("posts").collect()).find((p) => p.id === MENTION)!;
+      await ctx.db.insert("posts", { ...post, platform: "instagram", id: "instagram:1" });
+    });
+    const calls = stubFetch();
+    await expect(as.action(api.x.send.reply, { postId: "instagram:1", text: "hi" })).rejects.toMatchObject({ data: { message: "Post not found" } });
+    expect(calls).toEqual([]);
+    expect(await writesUsed()).toBe(0);
   });
 });

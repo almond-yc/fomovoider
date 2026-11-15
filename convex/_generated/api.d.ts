@@ -10,6 +10,11 @@
 
 import type * as accounts from "../accounts.js";
 import type * as auth from "../auth.js";
+import type * as bridge_events from "../bridge/events.js";
+import type * as bridge_http from "../bridge/http.js";
+import type * as bridge_lib from "../bridge/lib.js";
+import type * as bridge_pairing from "../bridge/pairing.js";
+import type * as bridge_send from "../bridge/send.js";
 import type * as conversations from "../conversations.js";
 import type * as crons from "../crons.js";
 import type * as feed from "../feed.js";
@@ -38,6 +43,11 @@ import type {
 declare const fullApi: ApiFromModules<{
   accounts: typeof accounts;
   auth: typeof auth;
+  "bridge/events": typeof bridge_events;
+  "bridge/http": typeof bridge_http;
+  "bridge/lib": typeof bridge_lib;
+  "bridge/pairing": typeof bridge_pairing;
+  "bridge/send": typeof bridge_send;
   conversations: typeof conversations;
   crons: typeof crons;
   feed: typeof feed;

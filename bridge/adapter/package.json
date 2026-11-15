@@ -1,0 +1,14 @@
+{
+  "name": "fomovoider-bridge-adapter",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p .",
+    "start": "node dist/bridge/adapter/src/main.js",
+    "test": "tsc -p . && node --test \"dist/bridge/adapter/src/**/*.test.js\""
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "~6.0.3"
+  }
+}

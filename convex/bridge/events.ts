@@ -1,0 +1,64 @@
+import { v } from "convex/values";
+import { internal } from "../_generated/api";
+import { internalMutation } from "../_generated/server";
+import { vConversationInput, vMessageInput, vPerson } from "../lib/validators";
+
+const vAccount = { accountId: v.id("connectedAccounts") };
+
+// Everything the bridge host reports, as one validated union.
+export const vBridgeEvent = v.union(
+  v.object({ ...vAccount, kind: v.literal("pairing"), flow: v.union(v.literal("qr"), v.literal("code")), code: v.string() }),
+  v.object({ ...vAccount, kind: v.literal("connected"), me: vPerson }),
+  v.object({ ...vAccount, kind: v.literal("failed"), error: v.string() }),
+  v.object({ ...vAccount, kind: v.literal("logged_out"), reason: v.optional(v.string()) }),
+  v.object({
+    ...vAccount,
+    kind: v.literal("sync"),
+    conversations: v.array(vConversationInput),
+    messages: v.array(vMessageInput),
+  }),
+);
+
+// Applies one bridge event in a single transaction. The account must be a
+// bridge account: its session is a device session pointing at its device.
+export const apply = internalMutation({
+  args: { event: vBridgeEvent },
+  returns: v.null(),
+  handler: async (ctx, { event }) => {
+    const { accountId } = event;
+    const account = await ctx.db.get(accountId);
+    const device = await ctx.db
+      .query("bridge_devices")
+      .withIndex("by_accountId", (q) => q.eq("accountId", accountId))
+      .unique();
+    if (!account || !device || account.session.kind !== "device" || account.session.deviceId !== device._id) {
+      throw new Error("Not a bridge account");
+    }
+    const updatedAt = Date.now();
+    switch (event.kind) {
+      case "pairing":
+        await ctx.db.patch(device._id, { status: "pairing", flow: event.flow, code: event.code, error: undefined, updatedAt });
+        return null;
+      case "connected":
+        await ctx.runMutation(internal.accounts.verifyIdentity, { accountId, me: event.me });
+        await ctx.db.patch(device._id, { status: "connected", flow: undefined, code: undefined, error: undefined, updatedAt });
+        return null;
+      case "failed":
+        await ctx.db.patch(device._id, { status: "failed", flow: undefined, code: undefined, error: event.error, updatedAt });
+        return null;
+      case "logged_out":
+        await ctx.db.patch(device._id, { status: "logged_out", error: event.reason, updatedAt });
+        await ctx.runMutation(internal.accounts.recordSync, { accountId, error: { kind: "session_expired" } });
+        return null;
+      case "sync":
+        if (event.conversations.length > 0) {
+          await ctx.runMutation(internal.ingest.upsertConversations, { accountId, conversations: event.conversations });
+        }
+        if (event.messages.length > 0) {
+          await ctx.runMutation(internal.ingest.upsertMessages, { accountId, messages: event.messages });
+        }
+        await ctx.runMutation(internal.accounts.recordSync, { accountId });
+        return null;
+    }
+  },
+});

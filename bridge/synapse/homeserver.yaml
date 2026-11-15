@@ -1,0 +1,30 @@
+# A private homeserver nobody logs into: it only carries rooms between the
+# bridges and the adapter. No federation, no registration, no public port.
+server_name: bridge.local
+pid_file: /data/homeserver.pid
+signing_key_path: /data/signing.key
+media_store_path: /data/media_store
+report_stats: false
+listeners:
+  - port: 8008
+    type: http
+    tls: false
+    x_forwarded: false
+    bind_addresses: ["0.0.0.0"]
+    resources:
+      - names: [client]
+        compress: false
+database:
+  name: sqlite3
+  args:
+    database: /data/homeserver.db
+enable_registration: false
+federation_domain_whitelist: []
+trusted_key_servers: []
+suppress_key_server_warning: true
+presence:
+  enabled: false
+app_service_config_files:
+  - /appservices/whatsapp.yaml
+  - /appservices/messenger.yaml
+  - /appservices/adapter.yaml

@@ -1,0 +1,7 @@
+*
+!bridge/adapter/package.json
+!bridge/adapter/package-lock.json
+!bridge/adapter/tsconfig.json
+!bridge/adapter/src
+bridge/adapter/src/**/*.test.ts
+!src/connectors/types.ts

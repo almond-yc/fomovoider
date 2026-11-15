@@ -1,0 +1,50 @@
+# mautrix-meta (bridgev2) for Facebook Messenger: settings that differ from
+# the defaults. Tokens and secrets come from FB_* environment variables.
+# Started only with `docker compose --profile messenger up`.
+env_config_prefix: FB_
+
+bridge:
+  personal_filtering_spaces: false
+  bridge_status_notices: none
+  permissions:
+    "bridge.local": user
+
+database:
+  type: sqlite3-fk-wal
+  uri: file:/data/meta.db?_txlock=immediate
+
+homeserver:
+  address: http://synapse:8008
+  domain: bridge.local
+  status_endpoint: http://adapter:8080/bridge-status/messenger
+
+appservice:
+  address: http://messenger:29319
+  hostname: 0.0.0.0
+  port: 29319
+  id: facebook
+  bot:
+    username: facebookbot
+    displayname: Messenger bridge bot
+  username_template: facebook_{{.}}
+
+matrix:
+  message_status_events: true
+  federate_rooms: false
+
+provisioning:
+  allow_matrix_auth: false
+
+backfill:
+  enabled: true
+  max_initial_messages: 50
+  max_catchup_messages: 500
+
+encryption:
+  allow: false
+
+logging:
+  min_level: info
+  writers:
+    - type: stdout
+      format: pretty

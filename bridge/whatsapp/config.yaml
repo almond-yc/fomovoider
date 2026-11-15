@@ -1,0 +1,57 @@
+# mautrix-whatsapp (bridgev2) settings that differ from the defaults. The
+# bridge fills in everything else from its built-in example config. Tokens
+# and secrets come from WA_* environment variables (env_config_prefix).
+env_config_prefix: WA_
+
+network:
+  displayname_template: '{{or .BusinessName .PushName .Phone "Unknown user"}}'
+  history_sync:
+    max_initial_conversations: 50
+
+bridge:
+  personal_filtering_spaces: false
+  bridge_status_notices: none
+  permissions:
+    "bridge.local": user
+
+database:
+  type: sqlite3-fk-wal
+  uri: file:/data/whatsapp.db?_txlock=immediate
+
+homeserver:
+  address: http://synapse:8008
+  domain: bridge.local
+  # Login state changes (connected, logged out, bad credentials) go to the adapter.
+  status_endpoint: http://adapter:8080/bridge-status/whatsapp
+
+appservice:
+  address: http://whatsapp:29318
+  hostname: 0.0.0.0
+  port: 29318
+  id: whatsapp
+  bot:
+    username: whatsappbot
+    displayname: WhatsApp bridge bot
+  username_template: whatsapp_{{.}}
+
+matrix:
+  # The adapter waits for these to tell Convex whether a send reached WhatsApp.
+  message_status_events: true
+  federate_rooms: false
+
+provisioning:
+  allow_matrix_auth: false
+
+backfill:
+  enabled: true
+  max_initial_messages: 50
+  max_catchup_messages: 500
+
+encryption:
+  allow: false
+
+logging:
+  min_level: info
+  writers:
+    - type: stdout
+      format: pretty

@@ -1,7 +1,9 @@
 import '../global.css';
 import '@/lib/title-font';
 
-import { NAV_THEME } from '@/lib/theme';
+import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/ui/icon';
+import { NAV_THEME, TITLE_FONT } from '@/lib/theme';
 import { api } from '@/convex/_generated/api';
 import { ConvexClientProvider } from '@/src/providers/ConvexClientProvider';
 import {
@@ -12,7 +14,8 @@ import {
 } from '@expo-google-fonts/inter';
 import { ThemeProvider } from 'expo-router/react-navigation';
 import { PortalHost } from '@rn-primitives/portal';
-import { Stack } from 'expo-router';
+import { Link, Stack } from 'expo-router';
+import { Settings } from 'lucide-react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useConvexAuth, useQuery } from 'convex/react';
@@ -72,7 +75,23 @@ function RootNavigator() {
         <Stack.Screen name="connect" />
       </Stack.Protected>
       <Stack.Protected guard={signedIn && connected}>
-        <Stack.Screen name="(tabs)" />
+        <Stack.Screen
+          name="(tabs)"
+          options={{
+            headerShown: true,
+            title: 'Fomovoider',
+            headerTitleAlign: 'center',
+            headerShadowVisible: false,
+            headerTitleStyle: { fontFamily: TITLE_FONT, fontSize: 18 },
+            headerRight: () => (
+              <Link href="/settings" asChild>
+                <Button variant="ghost" size="icon" accessibilityLabel="Settings">
+                  <Icon as={Settings} size={20} className="text-muted-foreground" />
+                </Button>
+              </Link>
+            ),
+          }}
+        />
         <Stack.Screen
           name="settings"
           options={{

@@ -3,28 +3,43 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-// Server code may move X Chat ciphertext but must never accept, store or
-// return a passcode, a private key or decrypted text. This scans every file
-// that runs on Convex or in the server-side connector.
+// The server holds X Chat keys in one place. Only convex/x/chatNode.ts may
+// take a passcode or handle private keys (it unlocks, exports, seals and
+// imports them), only it, chatKeys.ts and the schema may touch the sealed
+// keys column, and no server file logs a passcode or keys.
 const SERVER_DIRS = ["convex", "src/connectors/x/chat"];
-const FORBIDDEN = /\b(pin|passcode|privateKeys?|secretKeys?|exportKeys|importKeys|export_keys|import_keys|plaintext)\s*[:=(]/i;
+const KEY_HOLDER = "convex/x/chatNode.ts";
+const SEALED_KEYS = new Set([KEY_HOLDER, "convex/x/chatKeys.ts", "convex/x/schema.ts"]);
+const SECRET = /\b(pin|passcode|privateKeys?|secretKeys?|exportKeys|importKeys|export_keys|import_keys)\s*[:=(]/i;
+const LOGGED_SECRET = /console\.\w+\([^)]*\b(passcode|pin|keys|exported|encryptedKeys)\b/i;
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const path = join(dir, name);
     if (statSync(path).isDirectory()) return name === "_generated" || name === "__tests__" ? [] : files(path);
-    return /\.(ts|tsx|json)$/.test(name) ? [path] : [];
+    return /\.(ts|tsx|json)$/.test(name) && !/\.test\.ts$/.test(name) ? [path] : [];
   });
 }
 
-describe("X Chat secrets stay on the device", () => {
-  it("no server file declares a passcode, key or plaintext field", () => {
-    const offenders = SERVER_DIRS.flatMap(files).flatMap((path) =>
-      readFileSync(path, "utf8")
-        .split("\n")
-        .map((line, i) => ({ path, line: i + 1, text: line }))
-        .filter(({ text }) => !text.trim().startsWith("//") && FORBIDDEN.test(text)),
-    );
-    expect(offenders).toEqual([]);
+function lines() {
+  return SERVER_DIRS.flatMap(files).flatMap((path) =>
+    readFileSync(path, "utf8")
+      .split("\n")
+      .map((text, i) => ({ path, line: i + 1, text }))
+      .filter(({ text }) => !text.trim().startsWith("//")),
+  );
+}
+
+describe("X Chat secrets on the server", () => {
+  it("only chatNode.ts takes a passcode or handles private keys", () => {
+    expect(lines().filter(({ path, text }) => path !== KEY_HOLDER && SECRET.test(text))).toEqual([]);
+  });
+
+  it("only the key store touches the sealed keys", () => {
+    expect(lines().filter(({ path, text }) => !SEALED_KEYS.has(path) && /encryptedKeys/.test(text))).toEqual([]);
+  });
+
+  it("no server file logs a passcode or keys", () => {
+    expect(lines().filter(({ text }) => LOGGED_SECRET.test(text))).toEqual([]);
   });
 });

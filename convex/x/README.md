@@ -24,18 +24,48 @@ The X sync for Fomovoider. It runs the connector core in `src/connectors/x/` (of
 
 ## X Chat (encrypted DMs)
 
-X Chat messages are end-to-end encrypted with keys that only the user's X Chat passcode unlocks. Decryption happens on the phone; Convex only moves ciphertext.
+X Chat messages are end-to-end encrypted with keys that only the user's X Chat passcode unlocks. By default the server decrypts them: the user enters the passcode once, the server unlocks the private keys with it, and only the keys are kept, encrypted. X Chat then syncs in the background like legacy DMs, into the same `conversations` and `messages` rows, so the inbox needs no special path.
 
-- `crons.ts` runs `x/chat:syncAll` every 6 hours. `syncAccount` lists up to `CHAT_LIST_LIMIT` conversations (`GET /2/chat/conversations`) and upserts each as a normal inbox row with `unavailable: { reason: "locked" }` and no message text. `x_sync_state.chatSince` moves to the newest conversation only once a listing pass is complete; a pass cut off by the limit or budget resumes from `chatCursor` on the next run.
-- When the user opens a conversation, the app calls `x/chat:fetchEvents` (`GET /2/chat/conversations/{id}/events`, `EVENTS_PER_FETCH` per call) and reads the stored rows reactively through `x/chat:events`. Each conversation's position is in `x_chat_cursors`: a pass runs from the newest event down to `sinceId` (or the start of the chat) across fetches, and `sinceId` moves only when the pass ends, so bounded fetches never leave gaps.
-- `x/chat:keyContext` returns the Juicebox recovery config for the user's newest key and the participants' public keys (`GET /2/users/{id}/public_keys`). It never calls `POST /2/users/{id}/public_keys`, which would rotate the user's X Chat identity.
-- On the phone, `src/xchat/XChatProvider.tsx` runs X's Chat XDK in a hidden WebView (`assets/xchat/engine.html`, rebuilt by `npm run x:chat-engine`). It is mounted by `app/x-chat/_layout.tsx`. The passcode recovers the private key through Juicebox in that WebView; the key and the plaintext stay in its memory and are gone when the user locks X Chat or leaves its screens.
-- Face ID or fingerprint unlock is on by default: after the first passcode entry the passcode is kept in the iOS Keychain or Android Keystore behind biometrics (`expo-secure-store`, this device only). The switch in X Chat settings turns it off and deletes the saved passcode.
-- `x/chat:send` posts a message the phone already encrypted and signed (`POST /2/chat/conversations/{id}/messages`).
-- `purgeOrphans` deletes stored events whose user no longer has that X identity connected.
-- `src/connectors/x/chat/__tests__/no-secrets.test.ts` fails if code in `convex/` or `src/connectors/x/chat` ever handles a passcode, a private key or plaintext.
+### API for the app
 
-Chat event reads come out of `chatEventReads` in the budget below.
+| Function | What it does |
+| --- | --- |
+| `api.x.chatNode.setPasscode({ passcode })` (action) | Checks the passcode with X (Juicebox). If X accepts it, exports the unlocked keys and saves them sealed, then decrypts the X Chat rows already in the inbox. Returns `{ ok: true }` or `{ ok: false, error }`, where `error` is `{ kind: "wrongPasscode", guessesRemaining? }` (`guessesRemaining` only when X reports it), `{ kind: "notSetUp" }` (no X Chat passcode on this X account yet; set one in the X app), `{ kind: "notConnected" }` or `{ kind: "failed", message }`. A wrong passcode is never saved. |
+| `api.x.chatKeys.removePasscode()` (mutation) | Deletes the saved keys. Messages already decrypted stay; new X Chat messages show as locked until a passcode is set again. |
+| `api.x.chatKeys.passcodeStatus()` (query) | `{ status: "none" \| "active" \| "invalid", reason? }`. `"invalid"` means X stopped accepting the saved keys (the user changed their X Chat passcode or keys in the X app), so the app should ask again. |
+| `api.messages.send` | Unchanged. For an X Chat conversation with active keys it encrypts on the server and posts through X Chat (`x/send:message` → `x/chatNode:send`), using one daily write. |
+
+X allows 20 wrong passcode tries before it deletes the user's key backup. The server only tries a passcode inside `setPasscode`, when the user types it; it never retries one on its own, and background work uses the saved keys and never calls Juicebox.
+
+### How it works
+
+- **Keys** (`chatNode.ts`, `"use node"`, X's `@xdevplatform/chat-xdk-server`): `setPasscode` reads the account's Juicebox config (`GET /2/users/{id}/public_keys`), unlocks with the passcode, calls `exportKeys`, and seals the bytes with AES-256-GCM. The key comes from `X_CHAT_KEY_ENCRYPTION_KEY`, and the account id and X identity are bound in as additional data. The result goes to `x_chat_keys`. The passcode is zeroed and never stored. Decrypt and send runs open the seal and `importKeys`. The saved keys are deleted by `removePasscode`, by `accounts.disconnect`, and when the X identity behind the account changes. No public function returns them, and nothing logs them.
+- **Sync**: `crons.ts` runs `x/chat:syncAll` every 6 hours. `syncAccount` lists up to `CHAT_LIST_LIMIT` conversations (`GET /2/chat/conversations`). `x_sync_state.chatSince` moves only once a listing pass completes, and a pass cut short resumes from `chatCursor`. Changed conversations go to `chatNode.decryptConversations` when the account has active keys, and are otherwise written as `unavailable: { reason: "locked" }` rows. For up to 10 conversations per run, it fetches new events (`GET /2/chat/conversations/{id}/events`, resumable per conversation in `x_chat_cursors`) into `x_chat_events`, decrypts the newest 200 stored events, and upserts the messages and the conversation's `lastMessage`. Rows it can't decrypt stay locked.
+- **Ciphertext stays the source**: `x_chat_events` keeps every event exactly as X sent it, so re-decrypting never pays X again.
+- **Public keys**: participants' signing keys are cached in `x_chat_public_keys` for 7 days, and the user's own keys for 1 day. If X lists a newer own key version than the saved one, the saved keys are marked `invalid` and no longer used.
+- **Phone path**: the on-phone engine (`src/xchat/`, a hidden WebView running `@xdevplatform/chat-xdk`) still works for rows the server hasn't decrypted, and `x/chat:events`, `x/chat:fetchEvents`, `x/chat:keyContext` and `x/chat:send` still serve it. Face ID unlock there is now off by default.
+- Nothing ever calls `POST /2/users/{id}/public_keys`, which would rotate the user's X Chat identity.
+- `src/connectors/x/chat/__tests__/no-secrets.test.ts` enforces the boundary:
+  - only `convex/x/chatNode.ts` may take a passcode or handle private keys;
+  - only it, `chatKeys.ts` and the schema touch the sealed keys;
+  - no server file logs them.
+
+Chat event reads (event pages and public keys) come out of `chatEventReads` in the budget below, and X Chat sends come out of `writes`.
+
+### Consent
+
+Show this, final, before the passcode is first entered (onboarding after Connect X, and Settings). The same copy is in `src/xchat/consent.ts`.
+
+> **Read your encrypted X chats in Fomovoider**
+>
+> - X Chat is end-to-end encrypted. To show and send those chats in Fomovoider, we need your X Chat passcode once.
+> - We check the passcode with X and use it to unlock your X Chat keys. Fomovoider then stores those keys on its servers, encrypted, to read and send your X Chat messages. We don't store the passcode itself.
+> - Your X chats then sync in the background like your other messages, and the decrypted messages are kept in your Fomovoider inbox.
+> - Anyone who got those keys could read your X chats, past and future, and send messages as you. Fomovoider keeps them encrypted and never shows them to anyone, including you.
+> - X allows 20 wrong passcode tries. After that, X deletes your key backup and you may lose access to older encrypted messages. We only try a passcode when you enter it, never again on our own.
+> - You can remove the saved keys at any time in Settings, and they're deleted when you disconnect X. If you change your X Chat passcode or keys in the X app, you'll be asked for it again.
+>
+> ☐ I agree that Fomovoider stores my X Chat keys on its servers to read and send my X Chat messages.
 
 ## Sending (legacy DMs and replies)
 
@@ -51,6 +81,7 @@ Sends happen only when a person taps send in the app; the sync never posts. Each
 | --- | --- |
 | `X_CLIENT_ID` | Required. |
 | `X_CLIENT_SECRET` | Only for a confidential X app. |
+| `X_CHAT_KEY_ENCRYPTION_KEY` | Required for server-side X Chat: 32 random bytes, base64 (`openssl rand -base64 32`). It seals the saved X Chat keys; losing or changing it means every user enters their passcode again. Set it per deployment and never reuse it across deployments. |
 | `X_DAILY_BUDGET_SPLIT_USD` | Daily dollars per kind, e.g. `chatEventReads=0.30,postReads=0.20`. Kinds not named keep the default split below. |
 | `X_DAILY_POST_READ_BUDGET`, `X_DAILY_DM_EVENT_READ_BUDGET`, `X_DAILY_CHAT_EVENT_READ_BUDGET`, `X_DAILY_WRITE_BUDGET` | Counts per X user per UTC day; each one overrides the split for its kind. Defaults 40, 10, 30, 3. |
 | `X_FIXTURES` | `1` answers every X call from the connector's fixtures. Local backends only; never set it on a shared deployment. |

@@ -28,10 +28,9 @@ export const xTables = {
   // "x:<xUserId>:<kind>:<UTC date>" key.
   x_usage: defineTable({ key: v.string(), used: v.number() }).index("by_key", ["key"]),
 
-  // Encrypted X Chat events, stored as X sent them so the device can decrypt
-  // them again after a restart without paying X twice. Ciphertext only: no
-  // row or function here ever holds a passcode, a key or plaintext.
-  // kind "key" rows are the conversation key changes X returns in meta.
+  // Encrypted X Chat events, stored as X sent them: the source the server
+  // (or a phone) decrypts from, so nothing is paid to X twice. kind "key"
+  // rows are the conversation key changes X returns in meta.
   x_chat_events: defineTable({
     userId: v.id("users"),
     xUserId: v.string(),
@@ -57,4 +56,39 @@ export const xTables = {
     cursor: v.optional(v.string()),
     passNewestId: v.optional(v.string()),
   }).index("by_userId_and_conversationId", ["userId", "conversationId"]),
+
+  // Per connected X account: the X Chat private keys, exported once from the
+  // passcode and encrypted with X_CHAT_KEY_ENCRYPTION_KEY (AES-256-GCM, bound
+  // to the account and X identity). Only internal functions read this table;
+  // no public function returns encryptedKeys. "invalid" keeps no keys: X
+  // rejected them (the user changed their X Chat keys) and the passcode must
+  // be entered again.
+  x_chat_keys: defineTable({
+    accountId: v.id("connectedAccounts"),
+    userId: v.id("users"),
+    xUserId: v.string(),
+    status: v.union(v.literal("active"), v.literal("invalid")),
+    encryptedKeys: v.optional(v.string()),
+    signingKeyVersion: v.optional(v.string()),
+    invalidReason: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_accountId", ["accountId"])
+    .index("by_userId", ["userId"]),
+
+  // Public X Chat signing keys per X user (as GET /2/users/{id}/public_keys
+  // returns them), cached so decrypting doesn't pay X for them every run.
+  x_chat_public_keys: defineTable({
+    xUserId: v.string(),
+    keys: v.array(
+      v.object({
+        userId: v.string(),
+        publicKeyVersion: v.string(),
+        publicKey: v.string(),
+        identityPublicKey: v.string(),
+        identityPublicKeySignature: v.string(),
+      }),
+    ),
+    fetchedAt: v.number(),
+  }).index("by_xUserId", ["xUserId"]),
 };

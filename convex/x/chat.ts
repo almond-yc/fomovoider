@@ -1,16 +1,16 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { type ActionCtx, action, internalAction, internalMutation, internalQuery, query } from "../_generated/server";
+import { type ActionCtx, type QueryCtx, action, internalAction, internalMutation, internalQuery, query } from "../_generated/server";
 import { requireUserId } from "../lib/auth";
-import { ConnectorFailure, type Session } from "../../src/connectors/types";
-import { xConfigFromEnv } from "../../src/connectors/x/config";
-import { type ChatEventRow, type ChatKeyContext, XChatClient, eventSortKey } from "../../src/connectors/x/chat";
-import { convexUsageStore } from "./sync";
+import { ConnectorFailure } from "../../src/connectors/types";
+import { type ChatEventRow, type ChatKeyContext, eventSortKey } from "../../src/connectors/x/chat";
+import { type XChatConnection, connectXChat } from "./chatConnection";
 
-// X Chat (encrypted DMs). Convex lists conversations and moves ciphertext;
-// the device decrypts with the user's passcode, which never reaches Convex.
-// See convex/x/README.md, "X Chat".
+// X Chat (encrypted DMs). Convex lists conversations and stores their
+// ciphertext. With a saved passcode (chatKeys.ts), chatNode.ts decrypts them
+// into the shared conversations and messages tables; without one they stay
+// locked rows. See convex/x/README.md, "X Chat".
 
 // Per cron run: conversations listed. Per app request: events fetched for one
 // conversation. Both also stop at the daily chatEventReads budget.
@@ -43,8 +43,9 @@ export const syncAll = internalMutation({
   },
 });
 
-// Lists X Chat conversations active since the last run and writes them to
-// the shared inbox as locked rows, unless a newer legacy DM row covers them.
+// Lists X Chat conversations active since the last run. With saved keys they
+// go to chatNode.decryptConversations; without, they are written to the
+// shared inbox as locked rows, unless a newer legacy DM row covers them.
 export const syncAccount = internalAction({
   args: { accountId: v.id("connectedAccounts") },
   returns: v.null(),
@@ -53,7 +54,7 @@ export const syncAccount = internalAction({
     const account = loaded?.account;
     if (!account || account.platform !== "x" || account.status !== "active" || !account.me) return null;
     const meId = account.me.id.slice(2);
-    const x = connect(ctx, account);
+    const x = connectXChat(ctx, account);
     try {
       const state = loaded.state;
       const res = await x.client.conversations(x.session(), { meId, since: state?.chatSince, cursor: state?.chatCursor, limit: CHAT_LIST_LIMIT });
@@ -64,7 +65,13 @@ export const syncAccount = internalAction({
         }),
       );
       const conversations = res.conversations.filter((c) => stale.has(c.id));
-      if (conversations.length) await ctx.runMutation(internal.ingest.upsertConversations, { accountId, conversations });
+      if (conversations.length) {
+        if (await ctx.runQuery(internal.x.chatKeys.keysActive, { accountId })) {
+          await ctx.scheduler.runAfter(0, internal.x.chatNode.decryptConversations, { accountId, conversations });
+        } else {
+          await ctx.runMutation(internal.ingest.upsertConversations, { accountId, conversations });
+        }
+      }
       // chatSince moves only when a pass has reached it, so conversations on
       // pages the budget or limit cut off are listed by the next run.
       const passNewestAt = [state?.chatPassNewestAt, res.newestAt].filter((t): t is string => Boolean(t)).sort().at(-1);
@@ -113,37 +120,61 @@ export const fetchEvents = action({
   returns: v.object({ fetched: v.number(), caughtUp: v.boolean() }),
   handler: async (ctx, { conversationId, limit }): Promise<{ fetched: number; caughtUp: boolean }> => {
     const { account, meId, x } = await forUser(ctx, conversationId);
-    const state: Doc<"x_chat_cursors"> | null = await ctx.runQuery(internal.x.chat.eventCursor, { userId: account.userId, xUserId: account.me!.id, conversationId });
-    try {
-      const res = await x.client.events(x.session(), conversationId as `x:${string}`, {
-        meId,
-        afterId: state?.sinceId,
-        cursor: state?.cursor,
-        limit: Math.max(1, Math.min(limit ?? EVENTS_PER_FETCH, EVENTS_PER_FETCH)),
-      });
-      // A pass runs from the newest event down to sinceId (or the start of the
-      // chat) across fetches; sinceId moves to the pass's newest event only
-      // when it is done, so a bounded fetch never leaves a gap.
-      const newest = res.events.map((e) => e.id).sort((a, b) => (eventSortKey(a) < eventSortKey(b) ? 1 : -1))[0];
-      const passNewestId = state?.passNewestId ?? newest;
-      const cursor = res.caughtUp
-        ? { sinceId: passNewestId ?? state?.sinceId }
-        : { sinceId: state?.sinceId, cursor: res.nextCursor, passNewestId };
-      const keys = await Promise.all(res.keyEvents.map(async (encodedEvent) => ({ eventId: `key:${await sha256(encodedEvent)}`, encodedEvent })));
-      await ctx.runMutation(internal.x.chat.storeEvents, {
-        userId: account.userId,
-        xUserId: account.me!.id,
-        conversationId,
-        events: res.events,
-        keys,
-        cursor,
-      });
-      return { fetched: res.events.length, caughtUp: res.caughtUp };
-    } finally {
-      await x.saving();
-    }
+    return await fetchAndStore(ctx, account, meId, x, conversationId, limit);
   },
 });
+
+// For the server's decrypt and send actions: the same fetch for one account.
+export const fetchFor = internalAction({
+  args: { accountId: v.id("connectedAccounts"), conversationId: v.string(), limit: v.optional(v.number()) },
+  returns: v.object({ fetched: v.number(), caughtUp: v.boolean() }),
+  handler: async (ctx, { accountId, conversationId, limit }): Promise<{ fetched: number; caughtUp: boolean }> => {
+    const account: Doc<"connectedAccounts"> | null = await ctx.runQuery(internal.accounts.get, { accountId });
+    if (!account?.me || account.status !== "active" || account.session.kind !== "oauth") {
+      throw new ConnectorFailure({ kind: "session_expired" }, "Connect X first");
+    }
+    return await fetchAndStore(ctx, account, account.me.id.slice(2), connectXChat(ctx, account), conversationId, limit);
+  },
+});
+
+async function fetchAndStore(
+  ctx: ActionCtx,
+  account: Doc<"connectedAccounts">,
+  meId: string,
+  x: XChatConnection,
+  conversationId: string,
+  limit: number | undefined,
+): Promise<{ fetched: number; caughtUp: boolean }> {
+  const state: Doc<"x_chat_cursors"> | null = await ctx.runQuery(internal.x.chat.eventCursor, { userId: account.userId, xUserId: account.me!.id, conversationId });
+  try {
+    const res = await x.client.events(x.session(), conversationId as `x:${string}`, {
+      meId,
+      afterId: state?.sinceId,
+      cursor: state?.cursor,
+      limit: Math.max(1, Math.min(limit ?? EVENTS_PER_FETCH, EVENTS_PER_FETCH)),
+    });
+    // A pass runs from the newest event down to sinceId (or the start of the
+    // chat) across fetches; sinceId moves to the pass's newest event only
+    // when it is done, so a bounded fetch never leaves a gap.
+    const newest = res.events.map((e) => e.id).sort((a, b) => (eventSortKey(a) < eventSortKey(b) ? 1 : -1))[0];
+    const passNewestId = state?.passNewestId ?? newest;
+    const cursor = res.caughtUp
+      ? { sinceId: passNewestId ?? state?.sinceId }
+      : { sinceId: state?.sinceId, cursor: res.nextCursor, passNewestId };
+    const keys = await Promise.all(res.keyEvents.map(async (encodedEvent) => ({ eventId: `key:${await sha256(encodedEvent)}`, encodedEvent })));
+    await ctx.runMutation(internal.x.chat.storeEvents, {
+      userId: account.userId,
+      xUserId: account.me!.id,
+      conversationId,
+      events: res.events,
+      keys,
+      cursor,
+    });
+    return { fetched: res.events.length, caughtUp: res.caughtUp };
+  } finally {
+    await x.saving();
+  }
+}
 
 export const eventCursor = internalQuery({
   args: { userId: v.id("users"), xUserId: v.string(), conversationId: v.string() },
@@ -209,38 +240,103 @@ export const conversation = query({
   },
 });
 
-// For the device: the stored ciphertext of one conversation, newest first,
-// with its key changes.
+type StoredEvents = { rows: ChatEventRow[]; keyEvents: string[] };
+
+async function readStored(ctx: QueryCtx, userId: Id<"users">, xUserId: string, conversationId: string): Promise<StoredEvents> {
+  const byKind = (kind: "event" | "key") =>
+    ctx.db
+      .query("x_chat_events")
+      .withIndex("by_userId_and_conversationId_and_kind_and_sortKey", (q) =>
+        q.eq("userId", userId).eq("conversationId", conversationId).eq("kind", kind),
+      )
+      .order("desc")
+      .filter((q) => q.eq(q.field("xUserId"), xUserId))
+      .take(EVENTS_RETURNED);
+  const [rows, keys] = await Promise.all([byKind("event"), byKind("key")]);
+  return {
+    rows: rows.map((r) => ({
+      id: r.eventId,
+      encodedEvent: r.encodedEvent,
+      ...(r.keyVersion ? { keyVersion: r.keyVersion } : {}),
+      ...(r.senderId ? { senderId: r.senderId } : {}),
+      ...(r.createdAt ? { createdAt: r.createdAt } : {}),
+    })),
+    keyEvents: keys.map((k) => k.encodedEvent),
+  };
+}
+
+// For a phone that decrypts itself: the stored ciphertext of one
+// conversation, newest first, with its key changes.
 export const events = query({
   args: { conversationId: v.string() },
-  handler: async (ctx, { conversationId }): Promise<{ rows: ChatEventRow[]; keyEvents: string[] } | null> => {
+  handler: async (ctx, { conversationId }): Promise<StoredEvents | null> => {
     const userId = await requireUserId(ctx);
     const account = await ctx.db
       .query("connectedAccounts")
       .withIndex("by_userId_and_platform", (q) => q.eq("userId", userId).eq("platform", "x"))
       .unique();
     if (!account?.me) return null;
-    const xUserId = account.me.id;
-    const byKind = (kind: "event" | "key") =>
-      ctx.db
-        .query("x_chat_events")
-        .withIndex("by_userId_and_conversationId_and_kind_and_sortKey", (q) =>
-          q.eq("userId", userId).eq("conversationId", conversationId).eq("kind", kind),
-        )
-        .order("desc")
-        .filter((q) => q.eq(q.field("xUserId"), xUserId))
-        .take(EVENTS_RETURNED);
-    const [rows, keys] = await Promise.all([byKind("event"), byKind("key")]);
-    return {
-      rows: rows.map((r) => ({
-        id: r.eventId,
-        encodedEvent: r.encodedEvent,
-        ...(r.keyVersion ? { keyVersion: r.keyVersion } : {}),
-        ...(r.senderId ? { senderId: r.senderId } : {}),
-        ...(r.createdAt ? { createdAt: r.createdAt } : {}),
-      })),
-      keyEvents: keys.map((k) => k.encodedEvent),
-    };
+    return await readStored(ctx, userId, account.me.id, conversationId);
+  },
+});
+
+// For the server's decrypt and send actions.
+export const storedEvents = internalQuery({
+  args: { accountId: v.id("connectedAccounts"), conversationId: v.string() },
+  handler: async (ctx, { accountId, conversationId }): Promise<StoredEvents | null> => {
+    const account = await ctx.db.get(accountId);
+    if (!account?.me) return null;
+    return await readStored(ctx, account.userId, account.me.id, conversationId);
+  },
+});
+
+// True for a conversation the X Chat sync has seen (it has stored events or a
+// sync position), so sends go through X Chat rather than the legacy DM API.
+export const isXChat = internalQuery({
+  args: { accountId: v.id("connectedAccounts"), conversationId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, { accountId, conversationId }) => {
+    const account = await ctx.db.get(accountId);
+    if (!account) return false;
+    const cursor = await ctx.db
+      .query("x_chat_cursors")
+      .withIndex("by_userId_and_conversationId", (q) => q.eq("userId", account.userId).eq("conversationId", conversationId))
+      .unique();
+    if (cursor) return true;
+    const event = await ctx.db
+      .query("x_chat_events")
+      .withIndex("by_userId_and_conversationId_and_kind_and_sortKey", (q) => q.eq("userId", account.userId).eq("conversationId", conversationId))
+      .first();
+    return event !== null;
+  },
+});
+
+export const conversationRow = internalQuery({
+  args: { accountId: v.id("connectedAccounts"), conversationId: v.string() },
+  handler: async (ctx, { accountId, conversationId }): Promise<Doc<"conversations"> | null> => {
+    const account = await ctx.db.get(accountId);
+    if (!account) return null;
+    return await ctx.db
+      .query("conversations")
+      .withIndex("by_userId_and_id", (q) => q.eq("userId", account.userId).eq("id", conversationId))
+      .unique();
+  },
+});
+
+// The account's X Chat rows still locked in the inbox (stored shape), for
+// decrypting them once a passcode is saved, newest first.
+export const lockedConversations = internalQuery({
+  args: { accountId: v.id("connectedAccounts"), limit: v.number() },
+  handler: async (ctx, { accountId, limit }) => {
+    const account = await ctx.db.get(accountId);
+    if (!account) return [];
+    const rows = await ctx.db
+      .query("conversations")
+      .withIndex("by_userId_and_updatedAt", (q) => q.eq("userId", account.userId))
+      .order("desc")
+      .filter((q) => q.eq(q.field("platform"), "x"))
+      .take(500);
+    return rows.filter((r) => r.unavailable?.reason === "locked").slice(0, limit);
   },
 });
 
@@ -314,12 +410,10 @@ export const purgeOrphans = internalMutation({
   },
 });
 
-type Connection = ReturnType<typeof connect>;
-
 async function forUser(
   ctx: ActionCtx,
   conversationId: string | undefined,
-): Promise<{ account: Doc<"connectedAccounts">; meId: string; participantIds: string[]; x: Connection }> {
+): Promise<{ account: Doc<"connectedAccounts">; meId: string; participantIds: string[]; x: XChatConnection }> {
   const userId = await requireUserId(ctx);
   const { account, participantIds }: { account: Doc<"connectedAccounts"> | null; participantIds: string[] } = await ctx.runQuery(
     internal.x.chat.accountFor,
@@ -328,33 +422,7 @@ async function forUser(
   if (!account?.me || account.status !== "active" || account.session.kind !== "oauth") {
     throw new ConnectorFailure({ kind: "session_expired" }, "Connect X first");
   }
-  return { account, meId: account.me.id.slice(2), participantIds, x: connect(ctx, account) };
-}
-
-// A refreshed session is saved only while the account still holds the
-// session this action started with; if the user reconnected meanwhile, the
-// save is refused and the action fails instead of overwriting the new one.
-function connect(ctx: ActionCtx, account: Doc<"connectedAccounts">) {
-  let session = account.session as Session;
-  let saving: Promise<unknown> = Promise.resolve();
-  let sessionVersion = account.sessionVersion ?? 0;
-  const client = new XChatClient({
-    config: xConfigFromEnv(process.env),
-    usage: convexUsageStore(ctx),
-    onSessionRefreshed: (next) => {
-      session = next;
-      saving = saving.then(async () => {
-        const result = await ctx.runMutation(internal.accounts.saveSession, {
-          accountId: account._id,
-          session: next as Doc<"connectedAccounts">["session"],
-          expectedVersion: sessionVersion,
-        });
-        if (!result.saved) throw new Error("X was reconnected while this X Chat request ran; try again");
-        sessionVersion = result.sessionVersion;
-      });
-    },
-  });
-  return { client, session: () => session, saving: () => saving };
+  return { account, meId: account.me.id.slice(2), participantIds, x: connectXChat(ctx, account) };
 }
 
 async function sha256(text: string): Promise<string> {

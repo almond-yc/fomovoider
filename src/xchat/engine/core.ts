@@ -78,6 +78,12 @@ export class XChatEngine {
     } finally {
       pinBytes.fill(0);
     }
+    this.adopt(chat, { meId: context.meId, signingKeyVersion: context.signingKeyVersion, signingKeys: context.signingKeys });
+  }
+
+  // Takes a chat that already holds the user's keys: one unlocked above, or
+  // on the server one that imported them (chat-xdk-server's importKeys).
+  adopt(chat: XdkChat, context: { meId: string; signingKeyVersion: string; signingKeys: ChatSigningKey[] }): void {
     chat.setIdentity({ userId: context.meId, signingKeyVersion: context.signingKeyVersion });
     chat.setSigningKeys(context.signingKeys);
     chat.setCacheKeys(true);

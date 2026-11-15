@@ -7,7 +7,7 @@ const PASSCODE_KEY = "xchat.passcode";
 const BIOMETRIC_PREF_KEY = "xchat.biometric";
 const CONSENT_KEY = "xchat.consent";
 
-export const CONSENT_VERSION = "2026-11-15";
+export const CONSENT_VERSION = "2026-11-15-server";
 
 const protectedOptions: SecureStore.SecureStoreOptions = {
   requireAuthentication: true,
@@ -23,9 +23,10 @@ export function biometricsAvailable(): boolean {
   }
 }
 
-// On by default; only an explicit "off" in Settings disables it.
+// Off by default (the server path needs no phone unlock); only an explicit
+// "on" in Settings enables it for the on-phone path.
 export async function biometricPreference(): Promise<boolean> {
-  return (await SecureStore.getItemAsync(BIOMETRIC_PREF_KEY)) !== "off";
+  return (await SecureStore.getItemAsync(BIOMETRIC_PREF_KEY)) === "on";
 }
 
 export async function setBiometricPreference(on: boolean): Promise<void> {

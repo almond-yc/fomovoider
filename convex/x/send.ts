@@ -22,6 +22,9 @@ export const message = internalAction({
   args: { accountId: v.id("connectedAccounts"), conversationId: v.string(), text: v.string() },
   returns: vMessage,
   handler: async (ctx, { accountId, conversationId, text }): Promise<Infer<typeof vMessage>> => {
+    if ((await ctx.runQuery(internal.x.chatKeys.keysActive, { accountId })) && (await ctx.runQuery(internal.x.chat.isXChat, { accountId, conversationId }))) {
+      return await ctx.runAction(internal.x.chatNode.send, { accountId, conversationId, text });
+    }
     const account = await ctx.runQuery(internal.accounts.get, { accountId });
     const sent: Message = await withX(ctx, account, (x, session) => x.send(session, conversationId as Id, { text }));
     const { raw: _raw, ...stored } = sent;

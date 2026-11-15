@@ -173,13 +173,14 @@ async function syncWith(ctx: ActionCtx, x: XConnector, session: () => Session, i
 // so it stops without saving or recording anything.
 class StaleSync extends Error {}
 
-// A spent daily budget ends that step quietly: it is expected, resets at UTC
-// midnight, and is not an account error.
+// Fomovoider's own daily budget running out ends that step quietly: it is
+// expected, resets at UTC midnight (resetsAt), and is not an account error.
+// X refusing for lack of credits (402, no resetsAt) is recorded on the account.
 async function withinBudget(step: () => Promise<void>) {
   try {
     await step();
   } catch (err) {
-    if (err instanceof ConnectorFailure && err.error.kind === "budget_exhausted") return;
+    if (err instanceof ConnectorFailure && err.error.kind === "budget_exhausted" && err.error.resetsAt) return;
     throw err;
   }
 }

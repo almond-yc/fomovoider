@@ -25,6 +25,7 @@ import type * as messages from "../messages.js";
 import type * as postStates from "../postStates.js";
 import type * as retention from "../retention.js";
 import type * as users from "../users.js";
+import type * as x_auth from "../x/auth.js";
 import type * as x_crons from "../x/crons.js";
 import type * as x_state from "../x/state.js";
 import type * as x_sync from "../x/sync.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   postStates: typeof postStates;
   retention: typeof retention;
   users: typeof users;
+  "x/auth": typeof x_auth;
   "x/crons": typeof x_crons;
   "x/state": typeof x_state;
   "x/sync": typeof x_sync;

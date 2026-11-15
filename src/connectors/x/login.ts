@@ -26,7 +26,21 @@ export interface XLoginOptions {
   fetch?: typeof fetch;
 }
 
-export function createXLogin(opts: XLoginOptions): Login {
+// What the device hands to the server after X redirects back.
+export interface XAuthorizationCode {
+  code: string;
+  codeVerifier: string;
+  redirectUri: string;
+}
+
+// With exchange, the device only runs PKCE and passes the authorization code
+// to exchange (the Convex action api.x.auth.connect), and login() resolves to
+// what exchange returns; this is how a confidential X app keeps its secret on
+// the server. Without exchange, the device swaps the code itself as a public
+// client and login() resolves to the Session.
+export function createXLogin<T>(opts: XLoginOptions & { exchange: (code: XAuthorizationCode) => Promise<T> }): { kind: "oauth"; login(): Promise<T> };
+export function createXLogin(opts: XLoginOptions): Login;
+export function createXLogin<T>(opts: XLoginOptions & { exchange?: (code: XAuthorizationCode) => Promise<T> }): { kind: "oauth"; login(): Promise<T | Session> } {
   const redirectUri = opts.redirectUri ?? X_REDIRECT_URI;
   const oauth = new OAuthClient({
     clientId: opts.clientId,
@@ -36,7 +50,7 @@ export function createXLogin(opts: XLoginOptions): Login {
   });
   return {
     kind: "oauth",
-    async login(): Promise<Session> {
+    async login(): Promise<T | Session> {
       const request = new AuthSession.AuthRequest({
         clientId: opts.clientId,
         redirectUri,
@@ -50,7 +64,9 @@ export function createXLogin(opts: XLoginOptions): Login {
         throw new ConnectorFailure({ kind: "platform", message });
       }
       if (!result.params.code || !request.codeVerifier) throw new ConnectorFailure({ kind: "platform", message: "X login returned no authorization code" });
-      return oauth.exchangeCode(result.params.code, request.codeVerifier, redirectUri);
+      const code = { code: result.params.code, codeVerifier: request.codeVerifier, redirectUri };
+      if (opts.exchange) return opts.exchange(code);
+      return oauth.exchangeCode(code.code, code.codeVerifier, redirectUri);
     },
   };
 }

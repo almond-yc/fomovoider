@@ -140,6 +140,14 @@ describe("x sync", () => {
     expect(calls).toEqual(["/2/users/me"]);
   });
 
+  test("X refusing for lack of credits is recorded on the account", async () => {
+    stubFetch({ "/2/dm_events": () => json(fixtures["error-out-of-credits"], 402) });
+    const { sync, account, all } = await setup();
+    await sync();
+    expect(await account()).toMatchObject({ status: "error", lastError: { kind: "budget_exhausted" } });
+    expect(await all("messages")).toHaveLength(0);
+  });
+
   test("the usage budget persists across syncs", async () => {
     vi.stubEnv("X_DAILY_POST_READ_BUDGET", "20");
     stubFetch();

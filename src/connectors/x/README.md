@@ -24,6 +24,13 @@ const { me } = await x.account(session);
 const page = await x.feed(session, { since: lastCursor ?? new Date(Date.now() - 86_400_000).toISOString(), limit: 100 });
 ```
 
+With Convex (the app's path), the device only runs PKCE and the server exchanges the code, so a confidential X app's secret never ships in the app:
+
+```ts
+const login = createXLogin({ clientId, exchange: (code) => convex.action(api.x.auth.connect, code) });
+const { accountId, me } = await login.login(); // session stored server-side, first sync started
+```
+
 Mock mode needs no credentials: `createMockXConnector()` returns the same connector backed by the fixtures in `fixtures/`, and its `login.login()` resolves to `MOCK_X_SESSION`. Wire it to `EXPO_PUBLIC_X_MOCK=1` in the app layer.
 
 ## What each call does

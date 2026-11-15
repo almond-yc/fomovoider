@@ -2,11 +2,19 @@ import { api } from '@/convex/_generated/api';
 import type { ConnectorError, Login, PlatformId } from '@/src/connectors/types';
 import { createXLogin } from '@/src/connectors/x/login';
 import type { ConvexReactClient } from 'convex/react';
+import { ConvexError } from 'convex/values';
 import { makeFunctionReference, type FunctionReference } from 'convex/server';
 
 export interface PairingCode {
   code: string;
   expiresAt: number;
+}
+
+// A login that finishes on the server, which stores, verifies and syncs the
+// account itself; login() resolves once that is done.
+export interface ServerLogin {
+  kind: 'server';
+  login(): Promise<unknown>;
 }
 
 export interface LoginContext {
@@ -22,10 +30,9 @@ export interface ClientConnector {
   name: string;
   description: string;
   // Unset when this build can't connect the platform; the row is disabled.
-  login?: (ctx: LoginContext) => Login;
-  // True when login() already stored the session in Convex, verified it and
-  // started the first sync, so the app skips accounts.connect and sync.
-  savesSession?: boolean;
+  // A contract Login's Session is stored by the app with accounts.connect,
+  // which then starts the first sync.
+  login?: (ctx: LoginContext) => Login | ServerLogin;
   // Public mutation (no args) that syncs the signed-in user's account now.
   sync?: FunctionReference<'mutation', 'public', Record<string, never>, unknown>;
   // Public mutation (no args) the platform runs before accounts.disconnect.
@@ -62,11 +69,18 @@ export const connectors: ClientConnector[] = [
     platform: 'x',
     name: 'Twitter',
     description: 'Your timeline, mentions and DMs',
-    // TODO(FOMO-6): when api.x.auth.connect lands, createXLogin exchanges the
-    // code on the server with the client secret, stores the session, verifies
-    // it and starts the first sync. Then set savesSession: true. Until then the
-    // device exchanges the code itself, which the confidential X app refuses.
-    login: xClientId ? () => createXLogin({ clientId: xClientId }) : undefined,
+    // The X app is a confidential client: the device runs PKCE and
+    // api.x.auth.connect exchanges the code, stores and verifies the session,
+    // and starts the first sync.
+    login: xClientId
+      ? ({ convex }) => ({
+          kind: 'server',
+          login: createXLogin({
+            clientId: xClientId,
+            exchange: (code) => convex.action(api.x.auth.connect, code),
+          }).login,
+        })
+      : undefined,
     sync: api.x.sync.requestSync,
   },
   {
@@ -133,6 +147,9 @@ export function isMissingFunction(err: unknown) {
 
 export function errorMessage(err: unknown, connector: ClientConnector) {
   if (isMissingFunction(err)) return `${connector.name} isn't available on this server yet.`;
+  if (err instanceof ConvexError && err.data && typeof err.data === 'object' && 'kind' in err.data) {
+    err = { error: err.data };
+  }
   if (err && typeof err === 'object' && 'error' in err) {
     const error = (err as { error: ConnectorError }).error;
     switch (error.kind) {
@@ -141,7 +158,9 @@ export function errorMessage(err: unknown, connector: ClientConnector) {
       case 'rate_limited':
         return `${connector.name} is rate limiting us. Syncing resumes later.`;
       case 'budget_exhausted':
-        return "Today's sync budget is used up. Syncing resumes tomorrow.";
+        return connector.platform === 'x'
+          ? 'X credits used up. Syncing resumes when they refill.'
+          : "Today's sync budget is used up. Syncing resumes tomorrow.";
       case 'network':
         return `Couldn't reach ${connector.name}.`;
       case 'unsupported':

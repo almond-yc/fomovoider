@@ -316,14 +316,87 @@ describe("feed", () => {
 });
 
 describe("accounts", () => {
-  test("connect accepts a device session holding only a deviceId", async () => {
+  test("connect refuses device sessions from the app", async () => {
     const { t, signUp } = await setup();
     const alice = await signUp();
-    const accountId = await alice.as.mutation(api.accounts.connect, {
-      session: { platform: "instagram", kind: "device", deviceId: "device-1" },
+    await expect(
+      alice.as.mutation(api.accounts.connect, {
+        session: { platform: "instagram", kind: "device", deviceId: "device-1" },
+      }),
+    ).rejects.toThrow("Device sessions can only be connected by their connector's pairing flow");
+    expect(await t.run((ctx) => ctx.db.query("connectedAccounts").collect())).toEqual([]);
+  });
+
+  test("connect cannot replace a device session with another device", async () => {
+    const { t, signUp } = await setup();
+    const alice = await signUp();
+    const accountId = await t.mutation(internal.accounts.connectDevice, {
+      userId: alice.userId,
+      platform: "instagram",
+      deviceId: "device-1",
     });
+    await expect(
+      alice.as.mutation(api.accounts.connect, {
+        session: { platform: "instagram", kind: "device", deviceId: "device-of-bob" },
+      }),
+    ).rejects.toThrow("pairing flow");
     const account = await t.query(internal.accounts.get, { accountId });
     expect(account?.session).toEqual({ platform: "instagram", kind: "device", deviceId: "device-1" });
+  });
+
+  test("connectDevice stores a pending device session and replaces the previous one", async () => {
+    const { t, signUp } = await setup();
+    const alice = await signUp();
+    const accountId = await t.mutation(internal.accounts.connectDevice, {
+      userId: alice.userId,
+      platform: "instagram",
+      deviceId: "device-1",
+    });
+    expect(await t.query(internal.accounts.get, { accountId })).toMatchObject({
+      userId: alice.userId,
+      platform: "instagram",
+      session: { platform: "instagram", kind: "device", deviceId: "device-1" },
+      sessionVersion: 1,
+      status: "pending",
+    });
+    const again = await t.mutation(internal.accounts.connectDevice, {
+      userId: alice.userId,
+      platform: "instagram",
+      deviceId: "device-2",
+    });
+    expect(again).toBe(accountId);
+    expect(await t.query(internal.accounts.get, { accountId })).toMatchObject({
+      session: { platform: "instagram", kind: "device", deviceId: "device-2" },
+      sessionVersion: 2,
+      status: "pending",
+    });
+  });
+
+  test("connect still stores cookie sessions", async () => {
+    const { t, signUp } = await setup();
+    const alice = await signUp();
+    const session = {
+      platform: "instagram",
+      kind: "cookies" as const,
+      cookies: [{ name: "sessionid", value: "abc", domain: ".instagram.com" }],
+    };
+    const accountId = await alice.as.mutation(api.accounts.connect, { session });
+    expect(await t.query(internal.accounts.get, { accountId })).toMatchObject({
+      session,
+      status: "pending",
+    });
+  });
+
+  test("saveSession refuses device sessions", async () => {
+    const { t, signUp, connect } = await setup();
+    const alice = await signUp();
+    const accountId = await connect(alice, "instagram");
+    await expect(
+      t.mutation(internal.accounts.saveSession, {
+        accountId,
+        session: { platform: "instagram", kind: "device", deviceId: "device-of-bob" },
+      }),
+    ).rejects.toThrow("Device sessions can only be stored with connectDevice");
   });
 
   test("recordSync marks expired sessions and saveSession refreshes tokens", async () => {

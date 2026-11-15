@@ -75,6 +75,8 @@ Prefix job names with the platform so they stay unique. Adding the import and th
 
 A `device` session holds only a `deviceId` pointing into such a table; device secrets stay there, never in `connectedAccounts`.
 
+The app cannot store a device session: `accounts.connect` (and `saveSession`) reject `kind: "device"`, because a `deviceId` is only a pointer and the app could point it at another user’s row. The connector stores it from its own pairing code with `internal.accounts.connectDevice({ userId, platform, deviceId })`, and only after it has checked that the device row belongs to `userId`. That check is not a one-off: the connector’s sync path must also confirm, every time it resolves `session.deviceId`, that the device row still belongs to the account’s `userId` before it reads or writes anything with it.
+
 ## Functions connectors call
 
 All internal, called with `ctx.runQuery` / `ctx.runMutation` from a sync action. The user and platform always come from `accountId`; items from another platform or without a `<platform>:` id prefix are rejected.
@@ -83,8 +85,9 @@ All internal, called with `ctx.runQuery` / `ctx.runMutation` from a sync action.
 | --- | --- |
 | `internal.accounts.listByPlatform({ platform })` | Accounts to sync in a cron. |
 | `internal.accounts.get({ accountId })` | The account with its `session`. |
+| `internal.accounts.connectDevice({ userId, platform, deviceId })` | From pairing code only, after checking the device row is `userId`’s: stores the `device` session (replacing any previous one) and leaves the account `pending` like `accounts.connect`. |
 | `internal.accounts.verifyIdentity({ accountId, me })` | Required while `status` is `pending` (after every `accounts.connect`): pass `account()`'s `me`. A different identity than before drops the old cursor and cached content; the account is `resetting` until the purge finishes. Ingest refuses in both states. |
-| `internal.accounts.saveSession({ accountId, session, expectedVersion? })` | Persist a refreshed session (`onSessionRefreshed`). Pass the `sessionVersion` you read with `accounts.get`; if the session changed since (the user reconnected), it returns `{ saved: false, reason: "session_changed" }` and keeps the newer session. |
+| `internal.accounts.saveSession({ accountId, session, expectedVersion? })` | Persist a refreshed cookie or OAuth session (`onSessionRefreshed`); device sessions are refused, use `connectDevice`. Pass the `sessionVersion` you read with `accounts.get`; if the session changed since (the user reconnected), it returns `{ saved: false, reason: "session_changed" }` and keeps the newer session. |
 | `internal.accounts.recordSync({ accountId, error? })` | After a sync: success stamps `lastSyncedAt`; a `ConnectorError` sets status `expired` (`session_expired`) or `error`. |
 | `internal.ingest.upsertPosts({ accountId, posts, page? })` | Upsert `Post[]` by id, including `format`, `expiresAt` and `extracted`; `page: { cursor, caughtUp }` saves the feed cursor. Read it back from `feedCursors` for the next `since`. |
 | `internal.ingest.upsertConversations({ accountId, conversations })` | Upsert `Conversation[]` by id. |

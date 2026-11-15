@@ -11,7 +11,14 @@ import {
 } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
 import { deletePost } from "./lib/posts";
-import { vAccountStatus, vConnectorError, vPerson, vPlatform, vSession } from "./lib/validators";
+import {
+  vAccountStatus,
+  vConnectorError,
+  vPerson,
+  vPlatform,
+  vSession,
+  type Session,
+} from "./lib/validators";
 
 const PURGE_BATCH = 100;
 
@@ -47,36 +54,55 @@ export const list = query({
 // Called by the app after a webview or OAuth login. Replaces any previous
 // session for that platform. The session may belong to a different platform
 // identity than before, so the account is "pending" until the connector
-// confirms who it is with verifyIdentity.
+// confirms who it is with verifyIdentity. Device sessions are refused here:
+// a deviceId is a pointer into a connector's table, so only the connector,
+// after checking the device belongs to the user, may store one (connectDevice).
 export const connect = mutation({
   args: { session: vSession },
   returns: v.id("connectedAccounts"),
   handler: async (ctx, { session }) => {
     const userId = await requireUserId(ctx);
-    const existing = await ctx.db
-      .query("connectedAccounts")
-      .withIndex("by_userId_and_platform", (q) =>
-        q.eq("userId", userId).eq("platform", session.platform),
-      )
-      .unique();
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        session,
-        sessionVersion: (existing.sessionVersion ?? 0) + 1,
-        status: "pending",
-        lastError: undefined,
-      });
-      return existing._id;
+    if (session.kind === "device") {
+      throw new Error("Device sessions can only be connected by their connector's pairing flow");
     }
-    return await ctx.db.insert("connectedAccounts", {
-      userId,
-      platform: session.platform,
-      session,
-      sessionVersion: 1,
-      status: "pending",
-    });
+    return await writeSession(ctx, userId, session);
   },
 });
+
+// For connector pairing code: stores a device session for userId. The caller
+// must first confirm that deviceId is a row of its own device table owned by
+// userId, and must still check that ownership in its sync path.
+export const connectDevice = internalMutation({
+  args: { userId: v.id("users"), platform: vPlatform, deviceId: v.string() },
+  returns: v.id("connectedAccounts"),
+  handler: async (ctx, { userId, platform, deviceId }) =>
+    await writeSession(ctx, userId, { platform, kind: "device", deviceId }),
+});
+
+async function writeSession(ctx: MutationCtx, userId: Id<"users">, session: Session) {
+  const existing = await ctx.db
+    .query("connectedAccounts")
+    .withIndex("by_userId_and_platform", (q) =>
+      q.eq("userId", userId).eq("platform", session.platform),
+    )
+    .unique();
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      session,
+      sessionVersion: (existing.sessionVersion ?? 0) + 1,
+      status: "pending",
+      lastError: undefined,
+    });
+    return existing._id;
+  }
+  return await ctx.db.insert("connectedAccounts", {
+    userId,
+    platform: session.platform,
+    session,
+    sessionVersion: 1,
+    status: "pending",
+  });
+}
 
 // Removes the account, its feed cursor, and the platform's cached content.
 export const disconnect = mutation({
@@ -219,6 +245,9 @@ export const saveSession = internalMutation({
     if (!account) throw new Error("Connected account not found");
     if (session.platform !== account.platform) {
       throw new Error(`Session for ${session.platform} on a ${account.platform} account`);
+    }
+    if (session.kind === "device") {
+      throw new Error("Device sessions can only be stored with connectDevice");
     }
     const current = account.sessionVersion ?? 0;
     if (expectedVersion !== undefined && expectedVersion !== current) {

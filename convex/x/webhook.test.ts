@@ -231,7 +231,11 @@ describe("subscriptions", () => {
     expect(created.map((b) => b.event_type)).toEqual(["dm.sent", "chat.received", "chat.sent", "post.mention.create"]);
     expect(created[0]).toEqual({ event_type: "dm.sent", filter: { user_id: ME }, webhook_id: WEBHOOK_ID, tag: "fomovoider" });
     expect(calls.filter((c) => c.method === "DELETE").map((c) => c.path)).toEqual(["/2/activity/subscriptions/12"]);
-    expect(calls.every((c) => c.path.startsWith("/2/oauth2") || c.auth === "Bearer access")).toBe(true);
+    const auth = (method: string) => [...new Set(calls.filter((c) => c.method === method && c.path.startsWith("/2/activity")).map((c) => c.auth))];
+    expect(auth("GET")).toEqual(["Bearer app-bearer"]);
+    expect(auth("DELETE")).toEqual(["Bearer app-bearer"]);
+    expect(auth("POST")).toEqual(["Bearer access"]);
+    expect(calls.find((c) => c.method === "GET" && c.path === "/2/activity/subscriptions")).toBeDefined();
     expect((await rows("x_webhook_accounts"))[0]).toMatchObject({ xUserId: ME, subscriptionIds: ["11", "100", "101", "102", "103"] });
   });
 

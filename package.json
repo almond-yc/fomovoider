@@ -13,7 +13,9 @@
     "clsx": "^2.1.1",
     "convex": "^1.50.0",
     "expo": "~58.0.25",
+    "expo-auth-session": "~58.0.18",
     "expo-constants": "~58.0.16",
+    "expo-crypto": "~58.0.8",
     "expo-font": "~58.0.12",
     "expo-image": "~58.0.18",
     "expo-linking": "~58.0.17",
@@ -46,6 +48,7 @@
     "convex-test": "^0.0.71",
     "prettier-plugin-tailwindcss": "^0.5.14",
     "tailwindcss": "^3.4.19",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "vitest": "^5.1.0"
   },
@@ -54,7 +57,9 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "x:smoke": "tsx scripts/x-live-smoke.mjs"
   },
   "private": true
 }

@@ -1,0 +1,104 @@
+{
+  "data": [
+    {
+      "id": "1582838223305412612",
+      "event_type": "MessageCreate",
+      "text": "Sounds good, see you then https://t.co/map444",
+      "sender_id": "1234567890",
+      "dm_conversation_id": "1234567890-2244994945",
+      "created_at": "2026-11-15T19:02:00.000Z",
+      "entities": {
+        "urls": [
+          {
+            "start": 26,
+            "end": 49,
+            "url": "https://t.co/map444",
+            "expanded_url": "https://maps.example.com/cafe",
+            "display_url": "maps.example.com/cafe"
+          }
+        ]
+      }
+    },
+    {
+      "id": "1582838223305412611",
+      "event_type": "MessageCreate",
+      "text": "Want to grab coffee Tuesday?",
+      "sender_id": "2244994945",
+      "dm_conversation_id": "1234567890-2244994945",
+      "created_at": "2026-11-15T19:00:00.000Z"
+    },
+    {
+      "id": "1582838223305412610",
+      "event_type": "MessageCreate",
+      "text": "Welcome to the group",
+      "sender_id": "783214",
+      "dm_conversation_id": "1582103724607971328",
+      "created_at": "2026-11-15T18:00:00.000Z",
+      "attachments": {
+        "media_keys": [
+          "3_1582103724607971329"
+        ]
+      }
+    },
+    {
+      "id": "1582838223305412609",
+      "event_type": "ParticipantsJoin",
+      "participant_ids": [
+        "2244994945",
+        "783214",
+        "1234567890"
+      ],
+      "dm_conversation_id": "1582103724607971328",
+      "created_at": "2026-11-15T17:59:00.000Z"
+    },
+    {
+      "id": "1582838223305412600",
+      "event_type": "MessageCreate",
+      "text": "old legacy message before they switched to X Chat",
+      "sender_id": "555000555",
+      "dm_conversation_id": "555000555-2244994945",
+      "created_at": "2026-11-01T10:00:00.000Z"
+    }
+  ],
+  "includes": {
+    "users": [
+      {
+        "id": "1234567890",
+        "name": "Dev Person",
+        "username": "developer",
+        "receives_your_chat": "unencrypted"
+      },
+      {
+        "id": "2244994945",
+        "name": "X Developers",
+        "username": "XDevelopers",
+        "profile_image_url": "https://pbs.twimg.com/profile_images/1/xdev_normal.jpg"
+      },
+      {
+        "id": "783214",
+        "name": "X",
+        "username": "X",
+        "profile_image_url": "https://pbs.twimg.com/profile_images/2/x_normal.jpg"
+      },
+      {
+        "id": "555000555",
+        "name": "Encrypted Friend",
+        "username": "enc_friend",
+        "receives_your_chat": "encrypted"
+      }
+    ],
+    "media": [
+      {
+        "media_key": "3_1582103724607971329",
+        "type": "photo",
+        "url": "https://ton.twimg.com/dm/1582103724607971329/welcome.jpg",
+        "width": 800,
+        "height": 600
+      }
+    ]
+  },
+  "meta": {
+    "result_count": 5,
+    "next_token": "18LAA581J5II7LA00C00ZZZZ"
+  }
+}

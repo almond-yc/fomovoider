@@ -15,13 +15,24 @@ export type PendingMessage = {
   sentId?: string;
 };
 
-function Bubble({ mine, faded, children }: { mine: boolean; faded?: boolean; children: React.ReactNode }) {
+function Bubble({
+  mine,
+  faded,
+  className,
+  children,
+}: {
+  mine: boolean;
+  faded?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
   return (
     <View
       className={cn(
         'max-w-[80%] gap-1.5 overflow-hidden rounded-2xl px-3.5 py-2',
         mine ? 'self-end rounded-br-md bg-primary' : 'self-start rounded-bl-md bg-muted',
-        faded && 'opacity-60'
+        faded && 'opacity-60',
+        className
       )}>
       {children}
     </View>
@@ -38,7 +49,7 @@ export function MessageBubble({ message, showSender }: { message: ChatMessage; s
       ) : null}
       <View className={cn('max-w-[80%] flex-row items-center gap-2', mine ? 'self-end' : 'self-start')}>
         {delivery === 'failed' ? <Icon as={CircleAlert} size={16} className="text-destructive" /> : null}
-        <Bubble mine={mine} faded={delivery === 'pending'}>
+        <Bubble mine={mine} faded={delivery === 'pending'} className="max-w-full shrink">
         {message.media.map((m) => (
           <View key={m.url} className="w-60">
             <ContentMedia media={m} />

@@ -1,6 +1,6 @@
 # Fomovoider
 
-**All the good parts of social media. None of the scroll.**
+**All the good parts of social media. None of the slop.**
 
 ## The problem
 

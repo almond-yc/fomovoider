@@ -1,4 +1,13 @@
 import { DarkTheme, DefaultTheme, type Theme } from 'expo-router/react-navigation';
+import { Platform } from 'react-native';
+
+// The font-title token as a style value, for native headers that take a
+// fontFamily instead of a class. Keep in sync with tailwind.config.js.
+export const TITLE_FONT = Platform.select({
+  ios: 'Iowan Old Style',
+  web: "'Iowan Old Style', Georgia, serif",
+  default: 'serif',
+});
 
 export const THEME = {
   light: {

@@ -1,7 +1,7 @@
-import { ConvexAuthProvider, useAuthActions } from '@convex-dev/auth/react';
-import { ConvexReactClient, useConvexAuth } from 'convex/react';
+import { ConvexAuthProvider } from '@convex-dev/auth/react';
+import { ConvexReactClient } from 'convex/react';
 import * as SecureStore from 'expo-secure-store';
-import { useEffect, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { Platform } from 'react-native';
 
 const url = process.env.EXPO_PUBLIC_CONVEX_URL;
@@ -9,22 +9,21 @@ if (!url) throw new Error('EXPO_PUBLIC_CONVEX_URL is not set; see .env.example')
 
 const convex = new ConvexReactClient(url, { unsavedChangesWarning: false });
 
+// Convex Auth waits for the stored token before it reports signed in or out,
+// so a keychain failure (an unsigned simulator build has no keychain access)
+// would hang the app on the splash screen. Fall back to memory instead.
+const memory = new Map<string, string>();
 const secureStorage = {
-  getItem: SecureStore.getItemAsync,
-  setItem: SecureStore.setItemAsync,
-  removeItem: SecureStore.deleteItemAsync,
+  getItem: (key: string) => SecureStore.getItemAsync(key).catch(() => memory.get(key) ?? null),
+  setItem: (key: string, value: string) =>
+    SecureStore.setItemAsync(key, value).catch(() => {
+      memory.set(key, value);
+    }),
+  removeItem: (key: string) =>
+    SecureStore.deleteItemAsync(key).catch(() => {
+      memory.delete(key);
+    }),
 };
-
-// Dev-build identity: sign in anonymously whenever there is no session.
-// Replace once the final login method is chosen.
-function AnonymousSignIn() {
-  const { isLoading, isAuthenticated } = useConvexAuth();
-  const { signIn } = useAuthActions();
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) void signIn('anonymous');
-  }, [isLoading, isAuthenticated, signIn]);
-  return null;
-}
 
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
   return (
@@ -32,7 +31,6 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
       client={convex}
       storage={Platform.OS === 'android' || Platform.OS === 'ios' ? secureStorage : localStorage}
     >
-      <AnonymousSignIn />
       {children}
     </ConvexAuthProvider>
   );

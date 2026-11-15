@@ -23,7 +23,18 @@ It has exactly two tabs:
 
 ## Status
 
-Early. Nothing is built yet.
+Early. What works today:
+
+- **Accounts**: sign up and sign in with email and password. Email verification and Sign in with Apple come later.
+- **Connect**: until one platform is connected, the app shows a Connect screen instead of the tabs. Twitter/X connects through X's own sign-in. Instagram pairs a device with a one-time code; this needs the Instagram connector's backend, which isn't on main yet.
+- **Settings** (gear in the top bar): each platform's handle, status and last sync, Sync now, Disconnect (which deletes that platform's data from Fomovoider), and Sign out.
+- **Feed and Chats**: the tabs exist, but they don't show synced data yet.
+
+## Architecture
+
+- **App**: Expo Router. `app/_layout.tsx` decides what you see from the `users.viewer` query: signed out (sign up or sign in), signed in with nothing connected (Connect), or the tabs. The top bar is the native stack header. UI is react-native-reusables on NativeWind.
+- **Connectors**: each platform is a connector behind one contract, `src/connectors/types.ts`. `lib/connectors.ts` lists the ones the app can connect and how each signs in.
+- **Backend**: Convex (`convex/`; see `convex/README.md`). It handles auth, connected accounts, the shared post and message tables, and each connector's sync under `convex/<platform>/`.
 
 ## Development
 

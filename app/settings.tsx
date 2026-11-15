@@ -11,7 +11,10 @@ export default function SettingsScreen() {
   const viewer = useQuery(api.users.viewer);
   const { signOut } = useAuthActions();
   return (
-    <ScrollView className="flex-1 bg-background" contentContainerClassName="pb-12">
+    <ScrollView
+      className="flex-1 bg-background"
+      contentContainerClassName="pb-12"
+      contentInsetAdjustmentBehavior="automatic">
       <Text variant="muted" className="px-5 pb-1 pt-6 text-xs uppercase tracking-wider">
         Accounts
       </Text>

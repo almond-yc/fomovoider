@@ -1,0 +1,404 @@
+{
+  "dm.received": {
+    "data": {
+      "event_uuid": "-6850472171600526495",
+      "created_at": "2026-10-07T19:17:36.304Z",
+      "filter": {
+        "user_id": "1111111111111111111"
+      },
+      "event_type": "dm.received",
+      "tag": "dm-inbound",
+      "payload": {
+        "direct_message_events": [
+          {
+            "type": "message_create",
+            "id": "2080765901528535096",
+            "created_timestamp": "1784928224372",
+            "message_create": {
+              "target": {
+                "recipient_id": "1111111111111111111"
+              },
+              "sender_id": "2222222222222222222",
+              "message_data": {
+                "text": "hello!",
+                "entities": {
+                  "hashtags": [],
+                  "symbols": [],
+                  "user_mentions": [],
+                  "urls": []
+                }
+              }
+            }
+          }
+        ],
+        "users": {
+          "2222222222222222222": {
+            "data": {
+              "description": "",
+              "profile_banner_url": "",
+              "public_metrics": {
+                "followers_count": 97,
+                "followers_count_str": "97",
+                "following_count": 1,
+                "following_count_str": "1",
+                "tweet_count": 50,
+                "tweet_count_str": "50",
+                "listed_count": 4,
+                "listed_count_str": "4",
+                "like_count": 27,
+                "like_count_str": "27",
+                "media_count": 3,
+                "media_count_str": "3"
+              },
+              "protected": false,
+              "url": "",
+              "affiliation": {
+                "description": "Automated",
+                "badge_url": "https://pbs.twimg.com/semantic_core_img/1428827730364096519/4ZXpTBhS?format=png&name=orig"
+              },
+              "is_identity_verified": false,
+              "id": "2222222222222222222",
+              "profile_image_url": "https://pbs.twimg.com/profile_images/0000000000000000001/example_normal.jpg",
+              "verified_type": "none",
+              "created_at": "2026-04-20T19:55:59.000Z",
+              "username": "OtherUser",
+              "verified": false,
+              "name": "OtherUser"
+            }
+          },
+          "1111111111111111111": {
+            "data": {
+              "description": "Building with the X AnotherUser @XDevelopers",
+              "profile_banner_url": "https://pbs.twimg.com/profile_banners/1111111111111111111/1600000000",
+              "entities": {
+                "url": {
+                  "urls": [
+                    {
+                      "start": 0,
+                      "start_str": "0",
+                      "end": 23,
+                      "end_str": "23",
+                      "url": "https://t.co/xxxxxxxx",
+                      "expanded_url": "https://developer.x.com",
+                      "display_url": "developer.x.com"
+                    }
+                  ]
+                },
+                "description": {
+                  "mentions": [
+                    {
+                      "start": 48,
+                      "start_str": "48",
+                      "end": 50,
+                      "end_str": "50",
+                      "username": "X"
+                    },
+                    {
+                      "start": 51,
+                      "start_str": "51",
+                      "end": 63,
+                      "end_str": "63",
+                      "username": "XDevelopers"
+                    }
+                  ]
+                }
+              },
+              "public_metrics": {
+                "followers_count": 5502,
+                "followers_count_str": "5502",
+                "following_count": 651,
+                "following_count_str": "651",
+                "tweet_count": 789,
+                "tweet_count_str": "789",
+                "listed_count": 46,
+                "listed_count_str": "46",
+                "like_count": 8010,
+                "like_count_str": "8010",
+                "media_count": 79,
+                "media_count_str": "79"
+              },
+              "location": "San Francisco, CA",
+              "protected": false,
+              "url": "https://t.co/xxxxxxxx",
+              "affiliation": {
+                "description": "X",
+                "badge_url": "https://pbs.twimg.com/profile_images/0000000000000000001/example_normal.jpg",
+                "url": "https://x.com/X"
+              },
+              "is_identity_verified": true,
+              "id": "1111111111111111111",
+              "profile_image_url": "https://pbs.twimg.com/profile_images/0000000000000000001/example_normal.jpg",
+              "verified_type": "blue",
+              "created_at": "2023-10-23T13:44:53.000Z",
+              "username": "ExampleUser",
+              "verified": true,
+              "name": "Example User"
+            }
+          }
+        }
+      }
+    }
+  },
+  "chat.received": {
+    "data": {
+      "event_uuid": "8511582263942905822",
+      "created_at": "2026-10-07T19:17:36.304Z",
+      "filter": {
+        "user_id": "1111111111111111111"
+      },
+      "event_type": "chat.received",
+      "tag": "chat-inbound",
+      "payload": {
+        "conversation_token": "eyJhbGciOiJIUzI1NiJ9.eyJyZXF1ZXN0aW5nVXN…(truncated)",
+        "id": "e4f4d3fc-8bbf-4928-92eb-e5058d6bb6f6",
+        "created_at_msec": "1784841183370",
+        "sender_id": "2222222222222222222",
+        "conversation_id": "2222222222222222222:1111111111111111111",
+        "conversation_key_version": "1768236281331",
+        "encoded_event": "CwABAAAAEzIwODA0MDA4MjUyMjcxMDAxNjALAAIA…(truncated)",
+        "conversation_key_change_event": "CwABAAAAEzIwMTA3NTQ4MTkxMTY0NDk5MDULAAIA…(truncated)",
+        "message_event_signature": {
+          "public_key_version": "1765382634817",
+          "signature": "6IK9SZIMXBe5SFcB7vGZJd5A5Eb5MLvnwrhUFfBGv4S5GsSX3WWPGuInXVNfSla36EjXQQ/R/HhsA+2hPAEY7A",
+          "signature_version": "7",
+          "signing_public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ2c+3BYZs7ZCEY/UPCpmQxJO9v6FJjeusvmSZO/JEay8oF1+oXXlHV55kX4bK6/zFijNKvq1YRb0it0yXqbglA=="
+        }
+      }
+    }
+  },
+  "post.mention.create": {
+    "data": {
+      "event_uuid": "2080765813578191303",
+      "created_at": "2026-10-07T19:17:36.304Z",
+      "filter": {
+        "user_id": "1111111111111111111"
+      },
+      "event_type": "post.mention.create",
+      "tag": "mentions",
+      "payload": {
+        "paid_partnership": false,
+        "created_at": "2026-07-24T21:23:23.000Z",
+        "edit_history_tweet_ids": [
+          "2080765813578191303"
+        ],
+        "conversation_id": "2080765813578191303",
+        "display_text_range": [
+          0,
+          16
+        ],
+        "edit_controls": {
+          "edits_remaining": 5,
+          "edits_remaining_str": "5",
+          "is_edit_eligible": true,
+          "editable_until": "2026-07-24T22:23:23.000Z"
+        },
+        "text": "hey @ExampleUser",
+        "entities": {
+          "mentions": [
+            {
+              "start": 4,
+              "start_str": "4",
+              "end": 16,
+              "end_str": "16",
+              "username": "ExampleUser",
+              "id": "1111111111111111111"
+            }
+          ]
+        },
+        "author_id": "2222222222222222222",
+        "possibly_sensitive": false,
+        "public_metrics": {
+          "retweet_count": 0,
+          "retweet_count_str": "0",
+          "reply_count": 0,
+          "reply_count_str": "0",
+          "like_count": 0,
+          "like_count_str": "0",
+          "quote_count": 0,
+          "quote_count_str": "0",
+          "bookmark_count": 0,
+          "bookmark_count_str": "0",
+          "impression_count": 0,
+          "impression_count_str": "0"
+        },
+        "reply_settings": "everyone",
+        "id": "2080765813578191303",
+        "lang": "und"
+      },
+      "includes": {
+        "users": [
+          {
+            "public_metrics": {
+              "followers_count": 97,
+              "followers_count_str": "97",
+              "following_count": 1,
+              "following_count_str": "1",
+              "tweet_count": 50,
+              "tweet_count_str": "50",
+              "listed_count": 4,
+              "listed_count_str": "4",
+              "like_count": 26,
+              "like_count_str": "26",
+              "media_count": 3,
+              "media_count_str": "3"
+            },
+            "profile_banner_url": "",
+            "username": "OtherUser",
+            "protected": false,
+            "is_identity_verified": false,
+            "affiliation": {
+              "badge_url": "https://pbs.twimg.com/semantic_core_img/1428827730364096519/4ZXpTBhS?format=png&name=orig",
+              "description": "Automated"
+            },
+            "most_recent_tweet_id": "2080765813578191303",
+            "verified_type": "none",
+            "description": "",
+            "created_at": "2026-04-20T19:55:59.000Z",
+            "profile_image_url": "https://pbs.twimg.com/profile_images/0000000000000000001/example_normal.jpg",
+            "name": "OtherUser",
+            "verified": false,
+            "url": "",
+            "id": "2222222222222222222"
+          },
+          {
+            "public_metrics": {
+              "followers_count": 5502,
+              "followers_count_str": "5502",
+              "following_count": 651,
+              "following_count_str": "651",
+              "tweet_count": 789,
+              "tweet_count_str": "789",
+              "listed_count": 46,
+              "listed_count_str": "46",
+              "like_count": 8010,
+              "like_count_str": "8010",
+              "media_count": 79,
+              "media_count_str": "79"
+            },
+            "profile_banner_url": "https://pbs.twimg.com/profile_banners/1111111111111111111/1600000000",
+            "username": "ExampleUser",
+            "protected": false,
+            "is_identity_verified": true,
+            "affiliation": {
+              "user_id": [
+                "783214"
+              ],
+              "badge_url": "https://pbs.twimg.com/profile_images/0000000000000000001/example_normal.jpg",
+              "url": "https://x.com/X",
+              "description": "X"
+            },
+            "most_recent_tweet_id": "2080761269309813134",
+            "verified_type": "blue",
+            "description": "Building with the X AnotherUser @XDevelopers",
+            "pinned_tweet_id": "1968451310203859083",
+            "created_at": "2023-10-23T13:44:53.000Z",
+            "profile_image_url": "https://pbs.twimg.com/profile_images/0000000000000000001/example_normal.jpg",
+            "name": "Example User",
+            "verified": true,
+            "url": "https://t.co/xxxxxxxx",
+            "location": "San Francisco, CA",
+            "id": "1111111111111111111",
+            "entities": {
+              "url": {
+                "urls": [
+                  {
+                    "start": 0,
+                    "start_str": "0",
+                    "end": 23,
+                    "end_str": "23",
+                    "url": "https://t.co/xxxxxxxx",
+                    "expanded_url": "https://developer.x.com",
+                    "display_url": "developer.x.com"
+                  }
+                ]
+              },
+              "description": {
+                "mentions": [
+                  {
+                    "start": 48,
+                    "start_str": "48",
+                    "end": 50,
+                    "end_str": "50",
+                    "username": "X"
+                  },
+                  {
+                    "start": 51,
+                    "start_str": "51",
+                    "end": 63,
+                    "end_str": "63",
+                    "username": "XDevelopers"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "tweets": [
+          {
+            "paid_partnership": false,
+            "created_at": "2026-07-24T21:23:23.000Z",
+            "edit_history_tweet_ids": [
+              "2080765813578191303"
+            ],
+            "conversation_id": "2080765813578191303",
+            "display_text_range": [
+              0,
+              16
+            ],
+            "edit_controls": {
+              "edits_remaining": 5,
+              "edits_remaining_str": "5",
+              "is_edit_eligible": true,
+              "editable_until": "2026-07-24T22:23:23.000Z"
+            },
+            "text": "hey @ExampleUser",
+            "entities": {
+              "mentions": [
+                {
+                  "start": 4,
+                  "start_str": "4",
+                  "end": 16,
+                  "end_str": "16",
+                  "username": "ExampleUser",
+                  "id": "1111111111111111111"
+                }
+              ]
+            },
+            "author_id": "2222222222222222222",
+            "possibly_sensitive": false,
+            "public_metrics": {
+              "retweet_count": 0,
+              "retweet_count_str": "0",
+              "reply_count": 0,
+              "reply_count_str": "0",
+              "like_count": 0,
+              "like_count_str": "0",
+              "quote_count": 0,
+              "quote_count_str": "0",
+              "bookmark_count": 0,
+              "bookmark_count_str": "0",
+              "impression_count": 0,
+              "impression_count_str": "0"
+            },
+            "reply_settings": "everyone",
+            "id": "2080765813578191303",
+            "lang": "und"
+          }
+        ]
+      }
+    }
+  },
+  "oauth.revoke": {
+    "data": {
+      "event_uuid": "5934540941047412905",
+      "created_at": "2026-10-07T19:17:36.304Z",
+      "filter": {},
+      "event_type": "oauth.revoke",
+      "payload": {
+        "date_time": "2026-07-23T21:44:05+00:00",
+        "user_id": "1111111111111111111",
+        "app_id": "29820954"
+      }
+    }
+  }
+}

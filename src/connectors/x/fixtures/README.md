@@ -9,4 +9,6 @@ Constructed where X does not document an example:
 
 The feed fixtures add one example of each post shape the mapper handles: a photo with alt text and a t.co link, a repost of a video, a quote, a long post (`note_tweet`), and a mention that replies with a GIF. They follow the v2 schemas, but the values are made up.
 
+`activity-events.json` holds the X Activity API webhook samples for `dm.received`, `chat.received`, `post.mention.create` and `oauth.revoke`, copied unchanged from docs.x.com's event payloads page (2026-11-15). In them, user 1111111111111111111 is the subscribed user and 2222222222222222222 is the other person.
+
 Replace these with scrubbed real recordings once a live account is connected.

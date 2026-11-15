@@ -7,4 +7,7 @@ export function registerXCrons(crons: Crons) {
   crons.interval("x:sync accounts", { hours: 6 }, internal.x.sync.syncAll, {});
   // X Chat: lists encrypted conversations as locked inbox rows (chat.ts).
   crons.interval("x:sync chat conversations", { hours: 6 }, internal.x.chat.syncAll, {});
+  // Webhooks: subscribes new accounts, resumes ones paused by the daily event
+  // cap, and drops subscriptions of accounts that went away (webhook.ts).
+  crons.interval("x:webhook subscriptions", { hours: 1 }, internal.x.webhook.ensureAll, {});
 }

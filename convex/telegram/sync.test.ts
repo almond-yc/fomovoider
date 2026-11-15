@@ -44,7 +44,7 @@ async function connected() {
   const deviceId = await s.t.run(async (ctx) =>
     ctx.db.insert("telegram_sessions", { userId: s.userId, secret: await encryptSecret(MOCK_SESSION_STRING), telegramUserId: ME, createdAt: Date.now() }),
   );
-  const accountId = await s.as.mutation(api.accounts.connect, { session: { platform: "telegram", kind: "device", deviceId } });
+  const accountId = await s.t.mutation(internal.accounts.connectDevice, { userId: s.userId, platform: "telegram", deviceId });
   const sync = () => s.t.action(internal.telegram.sync.syncAccount, { accountId });
   const account = () => s.t.run((ctx) => ctx.db.get(accountId));
   return { ...s, deviceId, accountId, sync, account };
@@ -142,11 +142,10 @@ describe("telegram sync", () => {
     expect((await all("messages")).some((m) => m.id === `${BOB}:107`)).toBe(true);
   });
 
-  test("never uses another user's Telegram session", async () => {
+  test("never uses another user's Telegram session, even if an account points at it", async () => {
     const victim = await connected();
     const attacker = await victim.t.run((ctx) => ctx.db.insert("users", {}));
-    const as = victim.t.withIdentity({ subject: `${attacker}|session` });
-    const accountId = await as.mutation(api.accounts.connect, { session: { platform: "telegram", kind: "device", deviceId: victim.deviceId } });
+    const accountId = await victim.t.mutation(internal.accounts.connectDevice, { userId: attacker, platform: "telegram", deviceId: victim.deviceId });
     await victim.t.action(internal.telegram.sync.syncAccount, { accountId });
     expect(await victim.t.run((ctx) => ctx.db.get(accountId))).toMatchObject({ status: "expired", lastError: { kind: "session_expired" } });
     expect(tg.transport.connects).toBe(0);

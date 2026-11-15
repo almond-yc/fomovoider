@@ -8,7 +8,7 @@ const SYNC_LEASE_MS = 10 * 60 * 1000;
 const REQUEST_SYNC_MIN_INTERVAL_MS = 30 * 1000;
 // A session nobody points to anymore (disconnected, or replaced by a new
 // login) is logged out after this grace period, which also covers the gap
-// between creating a session and accounts.connect in the login action.
+// between creating a session and connectDevice in the login action.
 const ORPHAN_GRACE_MS = 10 * 60 * 1000;
 const CLEANUP_BATCH = 50;
 
@@ -27,8 +27,8 @@ async function ownedSession(ctx: QueryCtx, userId: Id<"users">, session: { kind:
   if (session.kind !== "device" || !session.deviceId) return null;
   const id = ctx.db.normalizeId("telegram_sessions", session.deviceId);
   const row = id && (await ctx.db.get(id));
-  // accounts.connect accepts any deviceId, so a session is only used for the
-  // user who created it.
+  // The sync-side half of the ownership rule (the login checks it before
+  // connectDevice): a session is only used for the user who created it.
   return row && row.userId === userId ? { _id: row._id, secret: row.secret } : null;
 }
 
@@ -192,6 +192,14 @@ export const deleteLogin = internalMutation({
     if (existing) await ctx.db.delete(existing._id);
     return null;
   },
+});
+
+// The pairing side of the ownership rule: true only when the session row
+// exists and belongs to userId. The login checks it before connectDevice.
+export const ownsSession = internalQuery({
+  args: { userId: v.id("users"), sessionId: v.id("telegram_sessions") },
+  returns: v.boolean(),
+  handler: async (ctx, { userId, sessionId }) => (await ctx.db.get(sessionId))?.userId === userId,
 });
 
 export const createSession = internalMutation({

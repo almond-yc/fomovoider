@@ -31,7 +31,7 @@ type LoginStep =
     cancel(): Promise<void> }
 ```
 
-The app shows whatever the step asks for and passes the answer to `next()` until it gets `done`. For a QR step it calls `next()` with no answer every few seconds, re-rendering the QR when the URL changes. A wrong code or password rejects with a `platform` error and keeps the step, so the app can ask again. In the app, the methods map one-to-one onto the Convex actions `telegram/login:start`, `telegram/login:next` and `telegram/login:cancel`. Those keep the half-finished login encrypted between rounds and finish by calling `accounts.connect` themselves, so on `done` the account is already connected:
+The app shows whatever the step asks for and passes the answer to `next()` until it gets `done`. For a QR step it calls `next()` with no answer every few seconds, re-rendering the QR when the URL changes. A wrong code or password rejects with a `platform` error and keeps the step, so the app can ask again. In the app, the methods map one-to-one onto the Convex actions `telegram/login:start`, `telegram/login:next` and `telegram/login:cancel`. Those keep the half-finished login encrypted between rounds and finish by checking that the new session row belongs to the signed-in user and calling `internal.accounts.connectDevice` themselves, so on `done` the account is already connected:
 
 ```ts
 const login: Login = {

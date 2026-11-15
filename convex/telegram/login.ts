@@ -1,7 +1,7 @@
 "use node";
 
 import { ConvexError, type Infer, v } from "convex/values";
-import { api, internal } from "../_generated/api";
+import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { type ActionCtx, action } from "../_generated/server";
 import { requireUserId } from "../lib/auth";
@@ -84,8 +84,11 @@ async function settle(ctx: ActionCtx, userId: Id<"users">, round: () => Promise<
     secret: await encryptSecret(result.session),
     telegramUserId: result.me.id,
   });
+  if (!(await ctx.runQuery(internal.telegram.state.ownsSession, { userId, sessionId: deviceId }))) {
+    throw new ConvexError({ kind: "platform", message: "Telegram session not found" });
+  }
+  const accountId = await ctx.runMutation(internal.accounts.connectDevice, { userId, platform: "telegram", deviceId });
   const session = { platform: "telegram" as const, kind: "device" as const, deviceId };
-  const accountId = await ctx.runMutation(api.accounts.connect, { session });
   await ctx.runMutation(internal.telegram.state.deleteLogin, { userId });
   await ctx.scheduler.runAfter(0, internal.telegram.sync.syncAccount, { accountId });
   return { kind: "done", session };

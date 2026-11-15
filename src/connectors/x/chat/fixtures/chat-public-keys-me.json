@@ -1,0 +1,33 @@
+{
+  "data": [
+    {
+      "public_key": "TUUtSUQtdjE=",
+      "public_key_version": "1700000000000",
+      "signing_public_key": "TUUtU0lHLXYx",
+      "identity_public_key_signature": "TUUtQklORC12MQ==",
+      "juicebox_config": {
+        "realms": [
+          {
+            "id": "0102",
+            "address": "https://realm1.juicebox.example"
+          }
+        ],
+        "token_map": {
+          "0102": "realm-token-old"
+        }
+      }
+    },
+    {
+      "public_key": "TUUtSUQtdjI=",
+      "public_key_version": "1790000000000",
+      "signing_public_key": "TUUtU0lHLXYy",
+      "identity_public_key_signature": "TUUtQklORC12Mg==",
+      "juicebox_config": {
+        "key_store_token_map_json": "{\"token_map\":{\"0A0B\":\"realm-token-a\"}}",
+        "sdk_config": {
+          "realms": []
+        }
+      }
+    }
+  ]
+}

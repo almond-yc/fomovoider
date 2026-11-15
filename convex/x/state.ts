@@ -6,6 +6,9 @@ const syncStateFields = {
   dmSinceId: v.optional(v.string()),
   dmCursor: v.optional(v.string()),
   dmPassNewestId: v.optional(v.string()),
+  chatSince: v.optional(v.string()),
+  chatCursor: v.optional(v.string()),
+  chatPassNewestAt: v.optional(v.string()),
 };
 
 // Everything a sync needs to start: the account with its session, the feed
@@ -36,10 +39,12 @@ export const saveState = internalMutation({
     xUserId: v.string(),
     patch: v.object(syncStateFields),
     endDmPass: v.optional(v.boolean()),
+    endChatPass: v.optional(v.boolean()),
   },
   returns: v.null(),
-  handler: async (ctx, { accountId, xUserId, patch: fields, endDmPass }) => {
-    const patch = endDmPass ? { ...fields, dmCursor: undefined, dmPassNewestId: undefined } : fields;
+  handler: async (ctx, { accountId, xUserId, patch: fields, endDmPass, endChatPass }) => {
+    let patch = endDmPass ? { ...fields, dmCursor: undefined, dmPassNewestId: undefined } : fields;
+    if (endChatPass) patch = { ...patch, chatCursor: undefined, chatPassNewestAt: undefined };
     const existing = await ctx.db
       .query("x_sync_state")
       .withIndex("by_accountId", (q) => q.eq("accountId", accountId))

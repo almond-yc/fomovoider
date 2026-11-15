@@ -15,9 +15,11 @@
     "clsx": "^2.1.1",
     "convex": "^1.50.0",
     "expo": "~58.0.25",
+    "expo-asset": "~58.0.21",
     "expo-auth-session": "~58.0.18",
     "expo-constants": "~58.0.16",
     "expo-crypto": "~58.0.8",
+    "expo-file-system": "~58.0.13",
     "expo-font": "~58.0.12",
     "expo-image": "~58.0.18",
     "expo-linking": "~58.0.17",
@@ -39,6 +41,7 @@
     "react-native-screens": "~4.30.1",
     "react-native-svg": "15.16.0",
     "react-native-web": "^0.21.4",
+    "react-native-webview": "14.0.1",
     "react-native-worklets": "0.13.0",
     "tailwind-merge": "^3.7.0",
     "tailwindcss-animate": "^1.0.7"
@@ -47,8 +50,11 @@
     "@edge-runtime/vm": "^5.0.0",
     "@types/node": "^26.6.6",
     "@types/react": "~19.3.0",
+    "@xdevplatform/chat-xdk": "0.7.3",
     "babel-preset-expo": "^58.0.25",
     "convex-test": "^0.0.71",
+    "esbuild": "^0.27.0",
+    "juicebox-sdk": "0.3.7",
     "prettier-plugin-tailwindcss": "^0.5.14",
     "tailwindcss": "^3.4.19",
     "tsx": "^4.23.15",
@@ -62,7 +68,8 @@
     "web": "expo start --web",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "x:smoke": "tsx scripts/x-live-smoke.mjs"
+    "x:smoke": "tsx scripts/x-live-smoke.mjs",
+    "x:chat-engine": "node scripts/build-xchat-engine.mjs"
   },
   "private": true
 }

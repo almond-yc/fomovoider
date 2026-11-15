@@ -1,0 +1,32 @@
+{
+  "data": [
+    {
+      "id": "2122034395345846272",
+      "encoded_event": "RVZFTlQtMw==",
+      "conversation_key_version": "1794779680989",
+      "created_at": "2026-11-15T18:30:00.000Z",
+      "sender_id": "1234567890"
+    },
+    {
+      "id": "2122033388712886272",
+      "encoded_event": "RVZFTlQtMg==",
+      "conversation_key_version": "1794779680989",
+      "created_at": "2026-11-15T18:26:00.000Z",
+      "sender_id": "2244994945"
+    },
+    {
+      "id": "2122032382079926272",
+      "encoded_event": "RVZFTlQtMQ==",
+      "created_at": "2026-11-15T18:22:00.000Z",
+      "sender_id": "1234567890"
+    }
+  ],
+  "meta": {
+    "conversation_key_events": [
+      "S0VZLUNIQU5HRS0x"
+    ],
+    "result_count": 3,
+    "has_more": true,
+    "next_token": "page-2"
+  }
+}

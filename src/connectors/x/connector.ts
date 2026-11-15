@@ -17,7 +17,7 @@ import {
 import type { XDmEvent, XListResponse, XTweet, XUser } from "./api-types";
 import { OAuthClient, type OAuthSession, type PkceCrypto, webCrypto } from "./auth";
 import { type BudgetKind, DailyBudget, MemoryUsageStore, type UsageStore } from "./budget";
-import type { XConfig } from "./config";
+import { type XConfig, dailyBudgetLimits } from "./config";
 import { DM_EVENT_FIELDS, DM_EXPANSIONS, DM_USER_FIELDS, MAX_RESULTS, MEDIA_FIELDS, POST_EXPANSIONS, POST_FIELDS, USER_FIELDS, paths } from "./endpoints";
 import { type CallContext, XHttp, problemSlug, xCause } from "./http";
 import { XMapper, compareXIds, mapPerson, permalink, xId } from "./mappers";
@@ -123,7 +123,7 @@ export class XConnector implements Connector {
       onRefreshed: (session) => this.onSessionRefreshed?.(session),
     });
     this.budget = new DailyBudget(
-      { postReads: opts.config.dailyPostReadBudget, dmEventReads: opts.config.dailyDmEventReadBudget, writes: opts.config.dailyWriteBudget },
+      dailyBudgetLimits(opts.config),
       opts.usage ?? new MemoryUsageStore(),
       this.now,
     );
@@ -194,7 +194,7 @@ export class XConnector implements Connector {
     const ctx = this.context(session);
     const me = await this.me(ctx);
     const res = await this.readDmEvents(ctx, me.id, "dm_events", paths.dmEvents, opts);
-    const mapper = new XMapper(res.includes, [...this.people.values()]);
+    const mapper = new XMapper(res.includes, [...this.people.values(), ...(await this.missingParticipants(ctx, me.id, res))]);
     return { items: mapper.conversations(res.data ?? [], me.id), cursor: res.meta?.next_token ?? "", caughtUp: !res.meta?.next_token };
   }
 
@@ -297,7 +297,7 @@ export class XConnector implements Connector {
     const events = res.data ?? [];
     const fresh = opts.sinceId ? events.filter((e) => compareXIds(e.id, opts.sinceId!) > 0) : events;
     const reachedSince = fresh.length < events.length;
-    const mapper = new XMapper(res.includes, [...this.people.values()]);
+    const mapper = new XMapper(res.includes, [...this.people.values(), ...(await this.missingParticipants(ctx, me.id, { ...res, data: fresh }))]);
     const newest = events.reduce<string | undefined>((max, e) => (max === undefined || compareXIds(e.id, max) > 0 ? e.id : max), undefined);
     return {
       conversations: mapper.conversations(fresh, me.id),
@@ -374,6 +374,41 @@ export class XConnector implements Connector {
     stream.complete = !stream.token;
     const mapper = new XMapper(res.includes);
     return { posts: tweets.map((t) => mapper.post(t)), billed: tweets.length + (res.includes?.tweets?.length ?? 0) };
+  }
+
+  // X only expands the users an event names (sender_id, participant_ids), so
+  // the other person in a 1:1 conversation whose page holds only your own
+  // messages comes back without a profile. Looks those users up, billed like a
+  // DM event read ($0.01 each); when the budget is spent or the lookup fails
+  // they stay unnamed.
+  private async missingParticipants(ctx: CallContext, meId: string, res: XListResponse<XDmEvent>): Promise<XUser[]> {
+    const known = new Set([meId, ...(res.includes?.users ?? []).map((u) => u.id), ...[...this.people.values()].map((u) => u.id)]);
+    const missing = new Set<string>();
+    for (const event of res.data ?? []) {
+      const ids = [...(/^\d+-\d+$/.test(event.dm_conversation_id ?? "") ? event.dm_conversation_id!.split("-") : []), ...(event.participant_ids ?? []), ...(event.sender_id ? [event.sender_id] : [])];
+      for (const id of ids) if (!known.has(id)) missing.add(id);
+    }
+    if (!missing.size) return [];
+    const grant = await this.budget.reserve(meId, "dmEventReads", Math.min(MAX_RESULTS, missing.size));
+    if (grant <= 0) return [];
+    let found: XUser[] = [];
+    try {
+      const res = await this.http.request<{ data?: XUser[] }>(ctx, {
+        method: "GET",
+        path: paths.users,
+        endpoint: "users_lookup",
+        query: { ids: [...missing].slice(0, grant).join(","), "user.fields": DM_USER_FIELDS },
+      });
+      found = res.data ?? [];
+      return found;
+    } catch (err) {
+      // Names are enrichment: a failed lookup leaves the participants unnamed
+      // rather than losing the DM page already read and paid for.
+      if (err instanceof ConnectorFailure && err.error.kind === "session_expired") throw err;
+      return [];
+    } finally {
+      await this.budget.release(meId, "dmEventReads", grant - found.length);
+    }
   }
 
   private async readDmEvents(ctx: CallContext, userId: string, endpoint: string, path: string, opts: { cursor?: string; limit: number }, eventTypes?: string) {

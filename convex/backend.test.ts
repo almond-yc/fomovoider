@@ -732,6 +732,36 @@ describe("media persistence", () => {
     expect(await files(t)).toBe(1);
   });
 
+  test("media a connector already uploaded is kept, not copied", async () => {
+    const fetch = stubFetch();
+    const { t, signUp, connect } = await setup();
+    const alice = await signUp();
+    const accountId = await connect(alice, "instagram");
+    const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["crop"])));
+    const url = (await t.run((ctx) => ctx.storage.getUrl(storageId)))!;
+    await t.mutation(internal.ingest.upsertPosts, {
+      accountId,
+      posts: [post("instagram", 1, { media: [image(url, { storageId })] })],
+    });
+    await t.finishAllScheduledFunctions(() => {});
+    expect(fetch).not.toHaveBeenCalled();
+    const [row] = await t.run((ctx) => ctx.db.query("posts").collect());
+    expect(row.media[0].storageId).toBe(storageId);
+    expect(await files(t)).toBe(1);
+
+    const gone = await t.run(async (ctx) => {
+      const id = await ctx.storage.store(new Blob(["x"]));
+      await ctx.storage.delete(id);
+      return id;
+    });
+    await expect(
+      t.mutation(internal.ingest.upsertPosts, {
+        accountId,
+        posts: [post("instagram", 2, { media: [image(url, { storageId: gone })] })],
+      }),
+    ).rejects.toThrow("not found");
+  });
+
   test("X media is never copied", async () => {
     const fetch = stubFetch();
     const { t, signUp, connect } = await setup();

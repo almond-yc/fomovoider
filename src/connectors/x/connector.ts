@@ -285,6 +285,49 @@ export class XConnector implements Connector {
     };
   }
 
+  // Makes sure this user has one X Activity subscription per event type,
+  // delivering to webhookId, and returns their ids. A subscription for
+  // another webhook is replaced, since X allows one per event type and user.
+  async subscribeActivity(session: Session, opts: { webhookId: string; eventTypes: readonly string[]; tag: string }): Promise<string[]> {
+    const ctx = this.context(session);
+    const me = await this.me(ctx);
+    const listed = await this.http.request<{ data?: { subscription_id: string; event_type: string; webhook_id?: string }[] }>(ctx, {
+      method: "GET",
+      path: paths.activitySubscriptions,
+      endpoint: "activity_subscriptions",
+      query: { user_id: me.id },
+    });
+    const ids: string[] = [];
+    for (const eventType of opts.eventTypes) {
+      const existing = listed.data?.find((s) => s.event_type === eventType);
+      if (existing?.webhook_id === opts.webhookId) {
+        ids.push(existing.subscription_id);
+        continue;
+      }
+      if (existing) await this.unsubscribeActivity(session, [existing.subscription_id]);
+      const res = await this.http.request<{ data: { subscription: { subscription_id: string } } }>(ctx, {
+        method: "POST",
+        path: paths.activitySubscriptions,
+        endpoint: "create_activity_subscription",
+        body: { event_type: eventType, filter: { user_id: me.id }, webhook_id: opts.webhookId, tag: opts.tag },
+      });
+      ids.push(res.data.subscription.subscription_id);
+    }
+    return ids;
+  }
+
+  // Deletes subscriptions; ones X already removed are skipped.
+  async unsubscribeActivity(session: Session, ids: string[]): Promise<void> {
+    const ctx = this.context(session);
+    for (const id of ids) {
+      try {
+        await this.http.request(ctx, { method: "DELETE", path: paths.activitySubscription(id), endpoint: "delete_activity_subscription" });
+      } catch (err) {
+        if (xCause(err)?.status !== 404) throw err;
+      }
+    }
+  }
+
   // Every DM event newer than sinceId, one page at a time, newest first, for
   // a backend that keeps its own history. cursor continues an unfinished pass.
   async inbox(

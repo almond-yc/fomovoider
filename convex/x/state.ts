@@ -142,21 +142,22 @@ export const sendTarget = internalQuery({
   },
 });
 
-// After a send the inbox shows it at once: the conversation's preview and
-// order move to the sent message, unless a newer message is already there.
-export const markSent = internalMutation({
+// After a send or a webhook delivery the inbox shows the message at once: the
+// conversation's preview and order move to it, unless a newer message is
+// already there. False when the conversation isn't stored yet.
+export const showMessage = internalMutation({
   args: { accountId: v.id("connectedAccounts"), message: vMessage },
-  returns: v.null(),
+  returns: v.boolean(),
   handler: async (ctx, { accountId, message }) => {
     const account = await ctx.db.get(accountId);
-    if (!account) return null;
+    if (!account) return false;
     const conversation = await ctx.db
       .query("conversations")
       .withIndex("by_userId_and_id", (q) => q.eq("userId", account.userId).eq("id", message.conversationId))
       .unique();
-    if (!conversation || conversation.updatedAt > message.sentAt) return null;
-    await ctx.db.patch(conversation._id, { lastMessage: message, updatedAt: message.sentAt });
-    return null;
+    if (!conversation) return false;
+    if (conversation.updatedAt <= message.sentAt) await ctx.db.patch(conversation._id, { lastMessage: message, updatedAt: message.sentAt });
+    return true;
   },
 });
 

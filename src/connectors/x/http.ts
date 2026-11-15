@@ -21,7 +21,7 @@ export interface RateLimitState {
 }
 
 export interface XRequest {
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "DELETE";
   path: string;
   endpoint: string;
   query?: Record<string, string | number | undefined>;

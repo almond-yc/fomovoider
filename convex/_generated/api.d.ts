@@ -37,6 +37,7 @@ import type * as x_crons from "../x/crons.js";
 import type * as x_send from "../x/send.js";
 import type * as x_state from "../x/state.js";
 import type * as x_sync from "../x/sync.js";
+import type * as x_webhook from "../x/webhook.js";
 
 import type {
   ApiFromModules,
@@ -74,6 +75,7 @@ declare const fullApi: ApiFromModules<{
   "x/send": typeof x_send;
   "x/state": typeof x_state;
   "x/sync": typeof x_sync;
+  "x/webhook": typeof x_webhook;
 }>;
 
 /**

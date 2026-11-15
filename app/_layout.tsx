@@ -14,6 +14,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useColorScheme } from 'nativewind';
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -27,6 +28,10 @@ export default function RootLayout() {
   useEffect(() => {
     if (fontsLoaded || fontError) SplashScreen.hideAsync();
   }, [fontsLoaded, fontError]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') document.documentElement.classList.toggle('dark', scheme === 'dark');
+  }, [scheme]);
 
   if (!fontsLoaded && !fontError) return null;
 

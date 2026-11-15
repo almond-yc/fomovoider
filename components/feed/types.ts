@@ -1,3 +1,5 @@
+import type { PlatformId } from '@/src/connectors/types';
+
 export type FeedMedia = {
   kind: 'image' | 'gif' | 'video';
   url: string;
@@ -14,6 +16,7 @@ export type FeedPerson = {
 };
 
 export type FeedPost = {
+  platform: PlatformId;
   author: FeedPerson;
   text: string;
   media: FeedMedia[];

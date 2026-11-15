@@ -3,6 +3,7 @@ import type { FeedPost } from './types';
 export const samplePosts: (FeedPost & { id: string; title?: string })[] = [
   {
     id: 'x:1',
+    platform: 'x',
     author: { handle: 'anaruiz', displayName: 'Ana Ruiz', avatarUrl: 'https://i.pravatar.cc/96?img=12' },
     title: 'Sunrise on the ridge',
     text: 'Finished the trail before sunrise. Worth the 4am alarm.',
@@ -11,6 +12,7 @@ export const samplePosts: (FeedPost & { id: string; title?: string })[] = [
   },
   {
     id: 'instagram:2',
+    platform: 'instagram',
     author: { handle: 'm.chen', displayName: 'Mei Chen', avatarUrl: 'https://i.pravatar.cc/96?img=32' },
     text: 'No title on this one, just a thought: the best feeds end.',
     media: [],
@@ -18,6 +20,7 @@ export const samplePosts: (FeedPost & { id: string; title?: string })[] = [
   },
   {
     id: 'x:3',
+    platform: 'x',
     author: { handle: 'planet', displayName: 'Planet' },
     text: 'Earth, rotating.',
     media: [
@@ -31,7 +34,8 @@ export const samplePosts: (FeedPost & { id: string; title?: string })[] = [
     permalink: 'https://commons.wikimedia.org/wiki/File:Rotating_earth_(large).gif',
   },
   {
-    id: 'x:4',
+    id: 'web:4',
+    platform: 'web',
     author: { handle: 'blender', displayName: 'Blender Studio', avatarUrl: 'https://i.pravatar.cc/96?img=48' },
     text: 'Big Buck Bunny, still a classic.',
     media: [

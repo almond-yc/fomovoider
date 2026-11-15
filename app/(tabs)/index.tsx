@@ -74,11 +74,25 @@ function FeedSession({ refreshing, onRefresh }: { refreshing: boolean; onRefresh
   const [hidden, setHiddenIds] = useState<ReadonlySet<Id<'posts'>>>(new Set());
   const [saved, setSavedIds] = useState<ReadonlyMap<Id<'posts'>, boolean>>(new Map());
 
+  // feed.page drops hidden posts after paginating, so a page can come back
+  // empty and leave the list's length (and onEndReached) unchanged. Ask for
+  // the next page until one adds posts or the feed is exhausted.
+  const requestedAt = useRef<number | null>(null);
+  const loadNext = () => {
+    requestedAt.current = results.length;
+    loadMore(PAGE_SIZE);
+  };
+  useEffect(() => {
+    if (status !== 'CanLoadMore') return;
+    if (results.length === 0 || results.length === requestedAt.current) loadNext();
+    else requestedAt.current = null;
+  }, [status, results.length]);
+
   const caughtUp = reached !== null || (status === 'Exhausted' && connectorsCaughtUp === true);
   const posts = (reached ?? results).filter((p) => !hidden.has(p._id));
 
   const onEndReached = () => {
-    if (status === 'CanLoadMore') loadMore(PAGE_SIZE);
+    if (status === 'CanLoadMore') loadNext();
     if (!caughtUp || reached !== null || results.length === 0) return;
     setReached(results);
     void markCaughtUp({ until: Math.max(...results.map((p) => p.createdAt)) });
@@ -110,6 +124,7 @@ function FeedSession({ refreshing, onRefresh }: { refreshing: boolean; onRefresh
   if (caughtUp && posts.length === 0) {
     return (
       <FlatList
+        key="caught-up"
         data={[]}
         renderItem={() => null}
         contentContainerClassName="flex-1"
@@ -120,6 +135,7 @@ function FeedSession({ refreshing, onRefresh }: { refreshing: boolean; onRefresh
   }
   return (
     <FlatList
+      key="feed"
       data={posts}
       keyExtractor={(post) => post._id}
       renderItem={({ item }) => (

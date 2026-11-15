@@ -52,8 +52,9 @@ export default function RootLayout() {
   );
 }
 
-// Signed out: sign up or sign in. Signed in with no connected account: the
-// Connect screen. Otherwise the tabs and Settings.
+// Signed out: sign up or sign in. Signed in without an answer to "What's slop
+// for you?": onboarding. No connected account: the Connect screen. Otherwise
+// the tabs and Settings.
 function RootNavigator() {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const viewer = useQuery(api.users.viewer, isAuthenticated ? {} : 'skip');
@@ -66,6 +67,7 @@ function RootNavigator() {
   if (!ready) return null;
 
   const signedIn = isAuthenticated && viewer !== null;
+  const onboarded = viewer?.onboardedAt !== undefined;
   const connected = viewer?.accounts.some((a) => a.status === 'active') ?? false;
 
   return (
@@ -74,10 +76,13 @@ function RootNavigator() {
         <Stack.Screen name="sign-up" />
         <Stack.Screen name="sign-in" />
       </Stack.Protected>
-      <Stack.Protected guard={signedIn && !connected}>
+      <Stack.Protected guard={signedIn && !onboarded}>
+        <Stack.Screen name="onboarding" />
+      </Stack.Protected>
+      <Stack.Protected guard={signedIn && onboarded && !connected}>
         <Stack.Screen name="connect" />
       </Stack.Protected>
-      <Stack.Protected guard={signedIn && connected}>
+      <Stack.Protected guard={signedIn && onboarded && connected}>
         <Stack.Screen
           name="(tabs)"
           options={{

@@ -1,3 +1,4 @@
+import { OAuthButtons } from '@/components/oauth-buttons';
 import { Wordmark } from '@/components/wordmark';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +12,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const MIN_PASSWORD = 8;
 
-// Email and password through Convex Auth's Password provider.
+// Apple and Google first, then email and password through Convex Auth's
+// Password provider.
 export function AuthForm({ flow }: { flow: 'signUp' | 'signIn' }) {
   const { signIn } = useAuthActions();
   const [email, setEmail] = useState('');
@@ -52,6 +54,12 @@ export function AuthForm({ flow }: { flow: 'signUp' | 'signIn' }) {
             <Text variant="muted" className="text-center">
               {signingUp ? 'Create your account.' : 'Welcome back.'}
             </Text>
+          </View>
+          <OAuthButtons />
+          <View className="flex-row items-center gap-3">
+            <View className="h-px flex-1 bg-border" />
+            <Text variant="muted">or</Text>
+            <View className="h-px flex-1 bg-border" />
           </View>
           <View className="gap-4">
             <View className="gap-2">

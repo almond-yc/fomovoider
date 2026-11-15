@@ -36,8 +36,8 @@ export function ContentItem({ post, title }: { post: FeedPost; title?: string })
           hitSlop={8}
           accessibilityRole="link"
           className="flex-row items-center gap-1.5 self-start">
-          <Text className="text-xs text-muted-foreground">View original ↗</Text>
           <PlatformBadge platform={post.platform} />
+          <Text className="text-xs text-muted-foreground">View original ↗</Text>
         </Pressable>
       </View>
     </View>

@@ -27,7 +27,16 @@ function normalizePost(post: Omit<PostInput, "quoted">, platform: string) {
   const { raw: _raw, ...rest } = post;
   if (rest.platform !== platform) throw new Error(`Post ${rest.id} is not from ${platform}`);
   assertNamespaced(rest.id, platform);
-  return { ...rest, createdAt: isoDate(rest.createdAt) };
+  const event = rest.extracted?.event;
+  return {
+    ...rest,
+    createdAt: isoDate(rest.createdAt),
+    expiresAt: rest.expiresAt === undefined ? undefined : isoDate(rest.expiresAt),
+    extracted:
+      event?.startsAt === undefined
+        ? rest.extracted
+        : { ...rest.extracted, event: { ...event, startsAt: isoDate(event.startsAt) } },
+  };
 }
 
 function normalizeMessage(message: MessageInput, platform: string) {

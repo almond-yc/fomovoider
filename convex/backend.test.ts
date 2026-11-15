@@ -102,6 +102,35 @@ describe("ingest", () => {
     expect(cursors).toMatchObject([{ platform: "x", cursor: "c1", caughtUp: true }]);
   });
 
+  test("upsertPosts stores story format, expiresAt and extracted fields", async () => {
+    const { t, signUp, connect } = await setup();
+    const accountId = await connect(await signUp(), "instagram");
+    await t.mutation(internal.ingest.upsertPosts, {
+      accountId,
+      posts: [
+        post("instagram", 1, {
+          format: "story",
+          expiresAt: "2026-11-02T01:00:00+00:00",
+          extracted: {
+            place: { name: "Lisbon", lat: 38.72, lng: -9.14 },
+            event: { title: "Housewarming", startsAt: "2026-11-20T19:00:00+00:00", place: "Alfama" },
+            lifeUpdate: "Moved to Lisbon",
+          },
+        }),
+      ],
+    });
+    const [row] = await t.run((ctx) => ctx.db.query("posts").collect());
+    expect(row).toMatchObject({
+      format: "story",
+      expiresAt: "2026-11-02T01:00:00.000Z",
+      extracted: {
+        place: { name: "Lisbon", lat: 38.72, lng: -9.14 },
+        event: { title: "Housewarming", startsAt: "2026-11-20T19:00:00.000Z", place: "Alfama" },
+        lifeUpdate: "Moved to Lisbon",
+      },
+    });
+  });
+
   test("upsertPosts rejects posts from another platform or with bare ids", async () => {
     const { t, signUp, connect } = await setup();
     const accountId = await connect(await signUp(), "x");
@@ -208,6 +237,23 @@ describe("feed", () => {
     expect(ids(await alice.as.query(api.feed.page, page))).toEqual(["x:4", "x:3", "x:1"]);
   });
 
+  test("hides stories whose expiresAt has passed", async () => {
+    const { alice, ig, upsert } = await seed();
+    const hour = 60 * 60 * 1000;
+    const at = (offset: number) => new Date(Date.now() + offset).toISOString();
+    await upsert(ig, [
+      post("instagram", 4, { format: "story", expiresAt: at(hour) }),
+      post("instagram", 3, { format: "story", expiresAt: at(-hour) }),
+      post("instagram", 2, { format: "post" }),
+      post("instagram", 1),
+    ]);
+    expect(ids(await alice.as.query(api.feed.page, page))).toEqual([
+      "instagram:4",
+      "instagram:2",
+      "instagram:1",
+    ]);
+  });
+
   test("ends at the caught-up point, per platform", async () => {
     const { t, alice, x, ig, upsert, connect } = await seed();
     await upsert(x, [post("x", 3), post("x", 1)]);
@@ -269,6 +315,16 @@ describe("feed", () => {
 });
 
 describe("accounts", () => {
+  test("connect accepts a device session holding only a deviceId", async () => {
+    const { t, signUp } = await setup();
+    const alice = await signUp();
+    const accountId = await alice.as.mutation(api.accounts.connect, {
+      session: { platform: "instagram", kind: "device", deviceId: "device-1" },
+    });
+    const account = await t.query(internal.accounts.get, { accountId });
+    expect(account?.session).toEqual({ platform: "instagram", kind: "device", deviceId: "device-1" });
+  });
+
   test("recordSync marks expired sessions and saveSession refreshes tokens", async () => {
     const { t, signUp, connect } = await setup();
     const alice = await signUp();

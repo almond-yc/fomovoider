@@ -9,7 +9,8 @@ import { isoDate } from "./lib/normalize";
 export const RELEVANCE_THRESHOLD = 0.5;
 
 // The finite feed: posts from every platform, newest first, down to each
-// platform's caught-up point. `caughtUp` is true only when this is the last
+// platform's caught-up point. Items whose expiresAt has passed (stories) are
+// left out. `caughtUp` is true only when this is the last
 // page and every connected platform's connector reported it has nothing older
 // left; that is when the app shows "You're all caught up". A last page with
 // `caughtUp: false` means a connector is still paging in older posts.
@@ -28,12 +29,14 @@ export const page = query({
     const seen = cursors.flatMap((c) =>
       c.seenUntil === undefined ? [] : [{ platform: c.platform, seenUntil: c.seenUntil }],
     );
+    const now = new Date().toISOString();
     const result = await ctx.db
       .query("posts")
       .withIndex("by_userId_and_createdAt", (q) => q.eq("userId", userId))
       .order("desc")
       .filter((q) =>
         q.and(
+          q.or(q.eq(q.field("expiresAt"), undefined), q.gt(q.field("expiresAt"), now)),
           q.or(
             q.eq(q.field("relevance"), undefined),
             q.gte(q.field("relevance.score"), RELEVANCE_THRESHOLD),

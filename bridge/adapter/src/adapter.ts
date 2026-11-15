@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Id, Message, Person } from "../../../src/connectors/types.js";
 import type { BridgeConfig, LoginStep, Provisioning } from "./bridges.js";
-import type { ConvexPush } from "./convex.js";
+import type { ConvexPush, PairingStep } from "./convex.js";
 import {
   applyState,
   person,
@@ -26,6 +26,17 @@ export class HttpError extends Error {
 const SEND_STATUS = "com.beeper.message_send_status";
 const LOGGED_OUT_STATES = ["BAD_CREDENTIALS", "LOGGED_OUT"];
 const RECENT_LIMIT = 5000;
+// How long WhatsApp honours what we show, as observed: the first QR for 60 s,
+// each refresh for 20 s. A pairing code lasts the whole login window (~160 s).
+const FIRST_QR_MS = 60_000;
+const NEXT_QR_MS = 20_000;
+const CODE_MS = 160_000;
+
+function pairingStep(shown: NonNullable<LoginStep["display_and_wait"]>, first: boolean): PairingStep {
+  const expires = (ms: number) => new Date(Date.now() + ms).toISOString();
+  if (shown.type === "qr") return { kind: "qr", url: shown.data!, expiresAt: expires(first ? FIRST_QR_MS : NEXT_QR_MS) };
+  return { kind: "showCode", code: shown.data!, expiresAt: expires(CODE_MS) };
+}
 const CATCH_UP_LIMIT = 50;
 
 type SendStatus = { status: string; reason?: string };
@@ -73,8 +84,9 @@ export class Adapter {
   }
 
   // Starts pairing a Convex account with the platform and returns the first
-  // QR code or pairing code. Later codes and the outcome go to Convex.
-  async login(accountId: string, platform: string, flow: "qr" | "phone", phone?: string) {
+  // step to show (a QR code, or a code to type into the phone). Later steps
+  // and the outcome go to Convex.
+  async login(accountId: string, platform: string, method: "qr" | "phone", phone?: string): Promise<PairingStep> {
     if (!/^[a-z0-9]+$/.test(accountId)) throw new HttpError(400, "Invalid accountId");
     const { provisioning } = this.bridge(platform);
     const mxid = this.mxid(accountId);
@@ -83,10 +95,10 @@ export class Adapter {
     this.deps.state.save();
     for (const loginId of await provisioning.logins(mxid)) await provisioning.logout(mxid, loginId);
 
-    let step = await provisioning.start(mxid, flow);
+    let step = await provisioning.start(mxid, method);
     if (step.type === "user_input") {
       const field = step.user_input?.fields[0]?.id;
-      if (!phone || !field) throw new HttpError(400, "This flow needs a phone number");
+      if (!phone || !field) throw new HttpError(400, "The phone method needs a phone number");
       step = await provisioning.submitInput(mxid, step, { [field]: phone });
     }
     const shown = step.display_and_wait;
@@ -96,7 +108,7 @@ export class Adapter {
     const generation = (this.loginGeneration.get(accountId) ?? 0) + 1;
     this.loginGeneration.set(accountId, generation);
     void this.waitForLogin(accountId, platform, step, generation);
-    return { flow: shown.type === "qr" ? ("qr" as const) : ("code" as const), code: shown.data };
+    return pairingStep(shown, true);
   }
 
   private async waitForLogin(accountId: string, platform: string, first: LoginStep, generation: number) {
@@ -124,12 +136,7 @@ export class Adapter {
         }
         const shown = next.display_and_wait;
         if (next.type !== "display_and_wait" || !shown?.data) throw new Error(`Unexpected login step ${next.type}`);
-        await this.deps.convex.send({
-          accountId,
-          kind: "pairing",
-          flow: shown.type === "qr" ? "qr" : "code",
-          code: shown.data,
-        });
+        await this.deps.convex.send({ accountId, kind: "pairing", step: pairingStep(shown, false) });
         step = next;
       }
     } catch (error) {

@@ -93,14 +93,16 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 test("QR login: replaces old logins, returns the first code, pushes refreshes and the identity", async () => {
   const { adapter, pushed, calls, state } = setup([qr("qr-1"), qr("qr-2"), { login_id: "l", step_id: "done", type: "complete", complete: { user_login_id: "15550000001" } }]);
-  assert.deepEqual(await adapter.login("acc1", "whatsapp", "qr"), { flow: "qr", code: "qr-1" });
+  const first = await adapter.login("acc1", "whatsapp", "qr");
+  assert.equal(first.kind, "qr");
+  assert.equal(first.kind === "qr" && first.url, "qr-1");
+  assert.ok(Date.parse(first.expiresAt) > Date.now() + 50_000);
   await settle();
   assert.deepEqual(calls, ["register fv_acc1", "logout old-login", "start qr"]);
   const me = { id: "whatsapp:15550000001", platform: "whatsapp", handle: "+15550000001", displayName: "Me" };
-  assert.deepEqual(pushed, [
-    { accountId: "acc1", kind: "pairing", flow: "qr", code: "qr-2" },
-    { accountId: "acc1", kind: "connected", me },
-  ]);
+  assert.deepEqual(pushed[0], { accountId: "acc1", kind: "pairing", step: { kind: "qr", url: "qr-2", expiresAt: (pushed[0] as any).step.expiresAt } });
+  assert.ok(Date.parse((pushed[0] as any).step.expiresAt) <= Date.now() + 20_000);
+  assert.deepEqual(pushed.slice(1), [{ accountId: "acc1", kind: "connected", me }]);
   assert.deepEqual(state.accounts.acc1, { platform: "whatsapp", loginId: "15550000001", me });
 });
 
@@ -109,7 +111,10 @@ test("phone login submits the number and returns the pairing code", async () => 
     { login_id: "l", step_id: "phone", type: "user_input", user_input: { fields: [{ type: "phone_number", id: "phone_number", name: "Phone" }] } },
     { login_id: "l", step_id: "code", type: "display_and_wait", display_and_wait: { type: "code", data: "ABCD-EFGH" } },
   ]);
-  assert.deepEqual(await adapter.login("acc1", "whatsapp", "phone", "+15550000001"), { flow: "code", code: "ABCD-EFGH" });
+  assert.deepEqual(
+    { ...(await adapter.login("acc1", "whatsapp", "phone", "+15550000001")), expiresAt: undefined },
+    { kind: "showCode", code: "ABCD-EFGH", expiresAt: undefined },
+  );
   assert.ok(calls.includes('input {"phone_number":"+15550000001"}'));
   await assert.rejects(setup([portalState as never]).adapter.login("acc1", "whatsapp", "phone"), HttpError);
 });

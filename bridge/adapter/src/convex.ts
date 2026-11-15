@@ -1,10 +1,13 @@
 // Pushes bridge events into Convex through its /bridge/events HTTP action.
 // Events for one account are delivered in order; message and conversation
 // updates are batched for a moment so a backfill becomes a few requests.
-import type { Conversation, Message, Person } from "../../../src/connectors/types.js";
+import type { Conversation, LoginStep, Message, Person } from "../../../src/connectors/types.js";
+
+// The contract's LoginStep kinds a bridge pairing shows.
+export type PairingStep = Extract<LoginStep, { kind: "qr" | "showCode" }>;
 
 export type BridgeEvent =
-  | { accountId: string; kind: "pairing"; flow: "qr" | "code"; code: string }
+  | { accountId: string; kind: "pairing"; step: PairingStep }
   | { accountId: string; kind: "connected"; me: Person }
   | { accountId: string; kind: "failed"; error: string }
   | { accountId: string; kind: "logged_out"; reason?: string }

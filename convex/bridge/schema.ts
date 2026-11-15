@@ -3,6 +3,13 @@ import { v } from "convex/values";
 
 export const vBridgePlatform = v.union(v.literal("whatsapp"), v.literal("messenger"));
 
+// The contract's LoginStep kinds a bridge pairing shows, with ISO dates as in
+// the contract.
+export const vPairingStep = v.union(
+  v.object({ kind: v.literal("qr"), url: v.string(), expiresAt: v.string() }),
+  v.object({ kind: v.literal("showCode"), code: v.string(), expiresAt: v.string() }),
+);
+
 // Bridge-host tables, spread into convex/schema.ts. The bridge host keeps
 // every secret (WhatsApp keys, Meta cookies); Convex only tracks pairing.
 export const bridgeTables = {
@@ -18,10 +25,9 @@ export const bridgeTables = {
       v.literal("failed"),
       v.literal("logged_out"),
     ),
-    // While pairing: the QR payload to render, or the pairing code to type
-    // into the phone ("Link with phone number").
-    flow: v.optional(v.union(v.literal("qr"), v.literal("code"))),
-    code: v.optional(v.string()),
+    // While pairing: the contract LoginStep to show, a QR code or a code to
+    // type into the phone ("Link with phone number").
+    step: v.optional(vPairingStep),
     error: v.optional(v.string()),
     updatedAt: v.number(),
   })

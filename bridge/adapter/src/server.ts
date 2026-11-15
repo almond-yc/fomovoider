@@ -82,9 +82,9 @@ export function createAdapterServer({ adapter, hsToken, bridgeSecret, bridgeToke
         const accountId = requireString(body, "accountId");
         switch (path) {
           case "/v1/login": {
-            const flow = body.flow === "phone" ? "phone" : "qr";
+            const method = body.method === "phone" ? "phone" : "qr";
             const phone = typeof body.phone === "string" ? body.phone : undefined;
-            return reply(response, 200, await adapter.login(accountId, requireString(body, "platform"), flow, phone));
+            return reply(response, 200, await adapter.login(accountId, requireString(body, "platform"), method, phone));
           }
           case "/v1/send":
             return reply(

@@ -4,7 +4,7 @@ The X sync for Fomovoider. It runs the connector core in `src/connectors/x/` (of
 
 ## Flow
 
-1. The app signs in to X with `createXLogin()` (`src/connectors/x/login.ts`) and calls `accounts.connect` with the session. If the X app is a confidential client, set `X_CLIENT_SECRET` on the deployment so server-side refreshes authenticate with it.
+1. The app signs in with `createXLogin({ clientId, exchange })` (`src/connectors/x/login.ts`): the device runs PKCE and passes `{ code, codeVerifier, redirectUri }` to the action `api.x.auth.connect`, which exchanges the code on the server (with `X_CLIENT_SECRET` for a confidential X app, with the client id alone for a public one), stores the session through `accounts.connect`, calls `verifyIdentity`, schedules the first sync, and returns `{ accountId, me }`. Tokens never return to the device. Failures are `ConvexError`s carrying a `ConnectorError`.
 2. `crons.ts` (registered from the root `convex/crons.ts`) runs `x/sync:syncAll` every 6 hours; it schedules `x/sync:syncAccount` per X account. The app can also call `x/sync:requestSync` (at most every 15 minutes) after connecting or on pull to refresh.
 3. `syncAccount`:
    - takes a per-account lease, so the cron and app requests never run two syncs of one account at once;
@@ -12,7 +12,7 @@ The X sync for Fomovoider. It runs the connector core in `src/connectors/x/` (of
    - syncs every legacy DM, paging newest to older across runs, so history in Convex outlives X's 30-day window; an older page never overwrites a newer conversation;
    - reads the feed (mentions plus home, no replies or reposts) and upserts the normalized posts;
    - refreshes access tokens server-side and saves every rotated session with `accounts.saveSession`, unless the user reconnected meanwhile;
-   - records success or the `ConnectorError` with `accounts.recordSync`. A used-up daily budget is not an error: the step waits for the next UTC day.
+   - records success or the `ConnectorError` with `accounts.recordSync`. Fomovoider's own used-up daily budget is not an error: the step waits for the next UTC day. X refusing because the app's credits are depleted (HTTP 402) is recorded as `budget_exhausted` without `resetsAt`.
 
 ## Tables (`schema.ts`, spread into `convex/schema.ts`)
 

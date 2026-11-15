@@ -7,6 +7,7 @@ export const samplePosts: (FeedPost & { id: string })[] = [
     createdAt: 1794765600000,
     author: { id: 'x:anaruiz', platform: 'x', handle: 'anaruiz', displayName: 'Ana Ruiz', avatarUrl: 'https://i.pravatar.cc/96?img=12' },
     title: 'Sunrise on the ridge',
+    extracted: { place: { name: 'Mount Tamalpais' } },
     text: 'Finished the trail before sunrise. Worth the 4am alarm.',
     media: [{ kind: 'image', url: 'https://picsum.photos/seed/fomovoider-trail/1200/900', width: 1200, height: 900 }],
     permalink: 'https://x.com',

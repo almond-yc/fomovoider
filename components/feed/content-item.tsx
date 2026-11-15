@@ -4,7 +4,7 @@ import { PlatformBadge, platformName } from '@/components/platform-badge';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { openBrowserAsync } from 'expo-web-browser';
-import { Bookmark } from 'lucide-react-native';
+import { Bookmark, MapPin } from 'lucide-react-native';
 import { Pressable, View } from 'react-native';
 
 import { ContentMedia } from './content-media';
@@ -34,13 +34,24 @@ export function ContentItem({
       <View className="flex-1 gap-2">
         <Text className="text-sm" numberOfLines={1}>
           <Text className="font-sans-semibold text-sm">{author.displayName}</Text>
-          <Text className="text-sm text-muted-foreground"> @{author.handle}</Text>
+          {author.displayName === author.handle ? null : (
+            <Text className="text-sm text-muted-foreground"> @{author.handle}</Text>
+          )}
+          {post.format === 'story' ? <Text className="text-sm text-muted-foreground"> · Story</Text> : null}
         </Text>
         {post.title ? <Text className="font-title text-lg leading-6">{post.title}</Text> : null}
         {post.text ? <Text className="text-[15px] leading-[22px]">{post.text}</Text> : null}
         {post.media.map((m) => (
           <ContentMedia key={m.url} media={m} />
         ))}
+        {post.extracted?.place ? (
+          <View className="flex-row items-center gap-1">
+            <Icon as={MapPin} size={12} className="text-muted-foreground" />
+            <Text className="flex-1 text-xs text-muted-foreground" numberOfLines={1}>
+              {post.extracted.place.name}
+            </Text>
+          </View>
+        ) : null}
         <View className="flex-row items-center gap-3">
           <Pressable
             onPress={() => {

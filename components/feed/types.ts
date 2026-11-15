@@ -8,7 +8,7 @@ export type FeedPagePost = FunctionReturnType<typeof api.feed.page>['page'][numb
 // The fields ContentItem renders, so sample posts need not invent ids.
 export type FeedPost = Pick<
   FeedPagePost,
-  'platform' | 'author' | 'title' | 'createdAt' | 'text' | 'media' | 'permalink'
+  'platform' | 'author' | 'title' | 'createdAt' | 'text' | 'media' | 'permalink' | 'format' | 'extracted'
 >;
 export type FeedMedia = FeedPost['media'][number];
 export type FeedPerson = FeedPost['author'];

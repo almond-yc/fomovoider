@@ -18,16 +18,16 @@ export const start = action({
   },
   returns: v.null(),
   handler: async (ctx, { platform, input }) => {
-    const accountId = await ctx.runMutation(internal.bridge.pairing.begin, { platform });
+    const { accountId, deviceId } = await ctx.runMutation(internal.bridge.pairing.begin, { platform });
     try {
       const step = await callBridge<{ kind: "qr"; url: string; expiresAt: string } | { kind: "showCode"; code: string; expiresAt: string }>(
         "/v1/login",
-        { accountId, platform, ...input },
+        { accountId, deviceId, platform, ...input },
       );
-      await ctx.runMutation(internal.bridge.events.apply, { event: { accountId, kind: "pairing", step } });
+      await ctx.runMutation(internal.bridge.events.apply, { event: { accountId, deviceId, kind: "pairing", step } });
     } catch (error) {
       await ctx.runMutation(internal.bridge.events.apply, {
-        event: { accountId, kind: "failed", error: (error as Error).message },
+        event: { accountId, deviceId, kind: "failed", error: (error as Error).message },
       });
       throw error;
     }
@@ -63,8 +63,8 @@ export const status = query({
 // ownership check connectDevice requires.
 export const begin = internalMutation({
   args: { platform: vBridgePlatform },
-  returns: v.id("connectedAccounts"),
-  handler: async (ctx, { platform }): Promise<Id<"connectedAccounts">> => {
+  returns: v.object({ accountId: v.id("connectedAccounts"), deviceId: v.id("bridge_devices") }),
+  handler: async (ctx, { platform }): Promise<{ accountId: Id<"connectedAccounts">; deviceId: Id<"bridge_devices"> }> => {
     const userId = await requireUserId(ctx);
     const previous = await ctx.db
       .query("bridge_devices")
@@ -74,6 +74,6 @@ export const begin = internalMutation({
     const deviceId = await ctx.db.insert("bridge_devices", { userId, platform, status: "pairing", updatedAt: Date.now() });
     const accountId = await ctx.runMutation(internal.accounts.connectDevice, { userId, platform, deviceId });
     await ctx.db.patch(deviceId, { accountId });
-    return accountId;
+    return { accountId, deviceId };
   },
 });

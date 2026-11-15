@@ -7,9 +7,9 @@ import type { Conversation, LoginStep, Message, Person } from "../../../src/conn
 export type PairingStep = Extract<LoginStep, { kind: "qr" | "showCode" }>;
 
 export type BridgeEvent =
-  | { accountId: string; kind: "pairing"; step: PairingStep }
-  | { accountId: string; kind: "connected"; me: Person }
-  | { accountId: string; kind: "failed"; error: string }
+  | { accountId: string; deviceId: string; kind: "pairing"; step: PairingStep }
+  | { accountId: string; deviceId: string; kind: "connected"; me: Person }
+  | { accountId: string; deviceId: string; kind: "failed"; error: string }
   | { accountId: string; kind: "logged_out"; reason?: string }
   | { accountId: string; kind: "sync"; conversations: Conversation[]; messages: Message[] };
 
@@ -26,9 +26,13 @@ export class ConvexPush {
     private readonly options = { flushMs: 300, retries: 5, backoffMs: 500 },
   ) {}
 
+  // Updates batched so far go first, except before "connected": until the
+  // identity is confirmed Convex refuses them, so they follow it instead.
   send(event: BridgeEvent) {
-    this.flush(event.accountId);
-    return this.enqueue(event.accountId, () => this.post(event));
+    if (event.kind !== "connected") this.flush(event.accountId);
+    const sent = this.enqueue(event.accountId, () => this.post(event));
+    if (event.kind === "connected") this.flush(event.accountId);
+    return sent;
   }
 
   sync(accountId: string, update: { conversation?: Conversation; message?: Message }) {
@@ -86,10 +90,12 @@ export class ConvexPush {
         if (response.ok) return;
         status = response.status;
         const detail = await response.text();
-        if (status < 500 && status !== 429) throw new Error(`Convex rejected ${event.kind}: ${status} ${detail}`);
+        // 409: the account isn't ready (identity pending, or an old identity's
+        // data still being purged); worth retrying like a server error.
+        if (status < 500 && status !== 429 && status !== 409) throw new Error(`Convex rejected ${event.kind}: ${status} ${detail}`);
         if (attempt >= this.options.retries) throw new Error(`Convex ${status}: ${detail}`);
       } catch (error) {
-        if (status && status < 500 && status !== 429) throw error;
+        if (status && status < 500 && status !== 429 && status !== 409) throw error;
         if (attempt >= this.options.retries) throw error;
       }
       await new Promise((resolve) => setTimeout(resolve, this.options.backoffMs * 2 ** attempt));

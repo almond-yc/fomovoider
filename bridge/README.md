@@ -53,21 +53,26 @@ Only the adapter's port is published. For local development against
   users by masquerading, so it holds no per-user tokens, and the bridges
   double-puppet through the same appservice token, so messages sent from the
   phone appear as the owner's own (`isMine`).
-- **Pairing**: `POST /v1/login { method: "qr" | "phone", phone? }` logs out any
+- **Pairing**: `POST /v1/login { accountId, deviceId, method: "qr" | "phone", phone? }` logs out any
   previous login of the account, starts the bridge's provisioning login and
   returns the first contract `LoginStep`: `qr { url, expiresAt }` or
   `showCode { code, expiresAt }`. It keeps waiting on the bridge and pushes each
-  refreshed step, then `connected` with the remote identity, or `failed`.
+  refreshed step, then `connected` with the remote identity, or `failed`, each
+  tagged with `deviceId` so Convex ignores results of a superseded attempt.
 - **Receive**: Synapse pushes every event in rooms the account's user is in.
   Rooms carrying `m.bridge` state are portals: conversation id
   `<platform>:<chat id>` (the WhatsApp JID), message id `<platform>:<Matrix event id>`.
   Edits update the original message. Attachments become their caption or a
   placeholder (`[photo]`) because `mxc://` media isn't reachable by the app yet.
   When it first sees a room (after an invite or a restart) it catches up on the
-  last 50 messages. Updates are batched per account and delivered in order.
+  last 50 messages. Updates are batched per account and delivered in order;
+  Convex answers 409 while the account isn't ready (identity unconfirmed or
+  being reset) and the adapter retries. A transaction that hits a homeserver
+  or network failure is failed back to Synapse, which retries it.
 - **Send**: `POST /v1/send` posts `m.room.message` as the owner and waits up to
   15 s for the bridge's `com.beeper.message_send_status`; a `FAIL` becomes an
-  error for Convex. `POST /v1/read` sends a read receipt, which the bridge
+  error for Convex, and the message's own Matrix echo (held while the send is
+  in flight) is dropped instead of ingested. `POST /v1/read` sends a read receipt, which the bridge
   forwards.
 - **Logout**: the bridges POST login state to `/bridge-status/<platform>`;
   `LOGGED_OUT` or `BAD_CREDENTIALS` for the current login pushes `logged_out`

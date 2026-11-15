@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Id, Message, Person } from "../../../src/connectors/types.js";
-import type { BridgeConfig, LoginStep, Provisioning } from "./bridges.js";
+import { ProvisioningError, type BridgeConfig, type LoginStep, type Provisioning } from "./bridges.js";
 import type { ConvexPush, PairingStep } from "./convex.js";
 import {
   applyState,
@@ -13,6 +13,11 @@ import {
 } from "./mapping.js";
 import { MatrixError, type Matrix, type MatrixEvent } from "./matrix.js";
 import type { StateFile } from "./state.js";
+
+function retryable(error: unknown) {
+  if (error instanceof MatrixError || error instanceof ProvisioningError) return error.status >= 500 || error.status === 429;
+  return error instanceof TypeError && error.message === "fetch failed";
+}
 
 export class HttpError extends Error {
   constructor(
@@ -59,6 +64,9 @@ export class Adapter {
   private readonly loginGeneration = new Map<string, number>();
   private readonly sendStatuses = new Map<string, SendStatus>();
   private readonly sendWaiters = new Map<string, (status: SendStatus) => void>();
+  // Sends in flight per room, with the owner's events held until they settle.
+  private readonly inFlight = new Map<string, { count: number; held: MatrixEvent[] }>();
+  private readonly failedSends = new Set<string>();
 
   constructor(private readonly deps: AdapterDeps) {}
 
@@ -86,7 +94,15 @@ export class Adapter {
   // Starts pairing a Convex account with the platform and returns the first
   // step to show (a QR code, or a code to type into the phone). Later steps
   // and the outcome go to Convex.
-  async login(accountId: string, platform: string, method: "qr" | "phone", phone?: string): Promise<PairingStep> {
+  // deviceId names this pairing attempt in Convex; every event it produces
+  // carries it, so Convex can ignore results of a superseded attempt.
+  async login(
+    accountId: string,
+    deviceId: string,
+    platform: string,
+    method: "qr" | "phone",
+    phone?: string,
+  ): Promise<PairingStep> {
     if (!/^[a-z0-9]+$/.test(accountId)) throw new HttpError(400, "Invalid accountId");
     const { provisioning } = this.bridge(platform);
     const mxid = this.mxid(accountId);
@@ -107,11 +123,11 @@ export class Adapter {
     }
     const generation = (this.loginGeneration.get(accountId) ?? 0) + 1;
     this.loginGeneration.set(accountId, generation);
-    void this.waitForLogin(accountId, platform, step, generation);
+    void this.waitForLogin(accountId, deviceId, platform, step, generation);
     return pairingStep(shown, true);
   }
 
-  private async waitForLogin(accountId: string, platform: string, first: LoginStep, generation: number) {
+  private async waitForLogin(accountId: string, deviceId: string, platform: string, first: LoginStep, generation: number) {
     const { provisioning } = this.bridge(platform);
     const mxid = this.mxid(accountId);
     const current = () => this.loginGeneration.get(accountId) === generation;
@@ -131,17 +147,17 @@ export class Adapter {
           };
           this.deps.state.accounts[accountId] = { platform, loginId, me };
           this.deps.state.save();
-          await this.deps.convex.send({ accountId, kind: "connected", me });
+          await this.deps.convex.send({ accountId, deviceId, kind: "connected", me });
           return;
         }
         const shown = next.display_and_wait;
         if (next.type !== "display_and_wait" || !shown?.data) throw new Error(`Unexpected login step ${next.type}`);
-        await this.deps.convex.send({ accountId, kind: "pairing", step: pairingStep(shown, false) });
+        await this.deps.convex.send({ accountId, deviceId, kind: "pairing", step: pairingStep(shown, false) });
         step = next;
       }
     } catch (error) {
       if (!current()) return;
-      await this.deps.convex.send({ accountId, kind: "failed", error: String((error as Error).message ?? error) });
+      await this.deps.convex.send({ accountId, deviceId, kind: "failed", error: String((error as Error).message ?? error) });
     }
   }
 
@@ -183,6 +199,10 @@ export class Adapter {
       try {
         await this.handleEvent(event);
       } catch (error) {
+        // Homeserver or network trouble: fail the transaction so Synapse
+        // retries it (events are idempotent). Anything else is a bad event,
+        // which would block every later transaction if retried.
+        if (retryable(error)) throw error;
         console.error(`event ${event.event_id} in ${event.room_id} failed:`, error);
       }
     }
@@ -217,15 +237,30 @@ export class Adapter {
       return;
     }
 
-    this.ingestMessage(room, event);
+    // The owner's own messages wait while a send is in flight in the room:
+    // one of them may be the echo of a send the platform is about to refuse.
+    if (event.sender === this.mxid(room.accountId) && this.inFlight.has(room.roomId)) {
+      this.inFlight.get(room.roomId)!.held.push(event);
+      return;
+    }
+    await this.ingestMessage(room, event);
   }
 
-  private ingestMessage(room: Room, event: MatrixEvent) {
+  private async ingestMessage(room: Room, event: MatrixEvent) {
+    if (this.failedSends.has(event.event_id)) return;
     const { bridge } = this.bridge(room.platform);
     const owner = this.owner(room.accountId);
     const relation = event.content["m.relates_to"];
-    const original =
-      relation?.rel_type === "m.replace" ? this.recent.get(`${room.platform}:${relation.event_id}`) : undefined;
+    let original: Message | undefined;
+    if (relation?.rel_type === "m.replace" && typeof relation.event_id === "string") {
+      original = this.recent.get(`${room.platform}:${relation.event_id}`);
+      // An edit of a message we no longer remember keeps the original's
+      // sender and time, read back from Matrix.
+      if (!original) {
+        const target = await this.deps.matrix.event(room.roomId, this.mxid(room.accountId), relation.event_id);
+        original = toMessage(target, room, bridge, owner);
+      }
+    }
     const message = toMessage(event, room, bridge, owner, original);
     if (!message) return;
     this.remember(message);
@@ -239,6 +274,11 @@ export class Adapter {
   private pushConversation(room: Room) {
     const { bridge } = this.bridge(room.platform);
     this.deps.convex.sync(room.accountId, { conversation: toConversation(room, bridge, this.owner(room.accountId)) });
+  }
+
+  private rememberFailed(eventId: string) {
+    this.failedSends.add(eventId);
+    if (this.failedSends.size > 1000) this.failedSends.delete(this.failedSends.values().next().value!);
   }
 
   private remember(message: Message) {
@@ -273,8 +313,14 @@ export class Adapter {
     this.rooms.set(roomId, room);
     // Catch up on recent messages: ones sent before the adapter's user joined
     // (a race without double puppeting) or while the adapter was down.
-    const recent = await this.deps.matrix.lastEvents(roomId, mxid, CATCH_UP_LIMIT);
-    for (const event of recent.reverse()) this.ingestMessage(room, event);
+    const recent = (await this.deps.matrix.lastEvents(roomId, mxid, CATCH_UP_LIMIT)).reverse();
+    for (const event of recent) {
+      if (event.type === SEND_STATUS && event.content.status !== "SUCCESS" && event.content.status !== "PENDING") {
+        const target = event.content["m.relates_to"]?.event_id;
+        if (typeof target === "string") this.rememberFailed(target);
+      }
+    }
+    for (const event of recent) await this.ingestMessage(room, event);
     return room;
   }
 
@@ -325,8 +371,21 @@ export class Adapter {
     if (!account?.loginId) throw new HttpError(409, "Account is not connected");
     const room = await this.findRoom(accountId, conversationId);
     const mxid = this.mxid(accountId);
-    const eventId = await this.deps.matrix.sendMessage(room.roomId, mxid, randomUUID(), { msgtype: "m.text", body: text });
-    const status = await this.awaitSendStatus(eventId);
+    const flight = this.inFlight.get(room.roomId) ?? { count: 0, held: [] };
+    flight.count++;
+    this.inFlight.set(room.roomId, flight);
+    let status: SendStatus | undefined;
+    let eventId: string | undefined;
+    try {
+      eventId = await this.deps.matrix.sendMessage(room.roomId, mxid, randomUUID(), { msgtype: "m.text", body: text });
+      status = await this.awaitSendStatus(eventId);
+      if (status && status.status !== "SUCCESS") this.rememberFailed(eventId);
+    } finally {
+      if (--flight.count === 0) {
+        this.inFlight.delete(room.roomId);
+        for (const held of flight.held) await this.ingestMessage(room, held);
+      }
+    }
     if (status && status.status !== "SUCCESS") {
       throw new HttpError(502, `${room.platform} refused the message: ${status.reason ?? status.status}`);
     }

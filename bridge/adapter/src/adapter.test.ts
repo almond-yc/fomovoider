@@ -42,6 +42,7 @@ function setup(steps: LoginStep[] = []) {
     join: async (roomId: string) => void calls.push(`join ${roomId}`),
     joinedRooms: async () => ["!dm"],
     roomState: async (roomId: string) => {
+      if (roomId === "!down") throw new MatrixError(502, undefined, "bad gateway");
       if (roomId !== "!dm") throw new MatrixError(403, "M_FORBIDDEN", "not in room");
       return portalState;
     },
@@ -49,6 +50,10 @@ function setup(steps: LoginStep[] = []) {
     sendMessage: async (_roomId: string, _user: string, _txn: string, content: any) => {
       calls.push(`send ${content.body}`);
       return "$sent";
+    },
+    event: async (_roomId: string, _user: string, eventId: string) => {
+      calls.push(`get ${eventId}`);
+      return ev({ event_id: eventId, origin_server_ts: 42, content: { msgtype: "m.text", body: "original" } });
     },
     readReceipt: async (_roomId: string, _user: string, eventId: string) => void calls.push(`read ${eventId}`),
   } as unknown as Matrix;
@@ -93,16 +98,16 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 test("QR login: replaces old logins, returns the first code, pushes refreshes and the identity", async () => {
   const { adapter, pushed, calls, state } = setup([qr("qr-1"), qr("qr-2"), { login_id: "l", step_id: "done", type: "complete", complete: { user_login_id: "15550000001" } }]);
-  const first = await adapter.login("acc1", "whatsapp", "qr");
+  const first = await adapter.login("acc1", "dev1", "whatsapp", "qr");
   assert.equal(first.kind, "qr");
   assert.equal(first.kind === "qr" && first.url, "qr-1");
   assert.ok(Date.parse(first.expiresAt) > Date.now() + 50_000);
   await settle();
   assert.deepEqual(calls, ["register fv_acc1", "logout old-login", "start qr"]);
   const me = { id: "whatsapp:15550000001", platform: "whatsapp", handle: "+15550000001", displayName: "Me" };
-  assert.deepEqual(pushed[0], { accountId: "acc1", kind: "pairing", step: { kind: "qr", url: "qr-2", expiresAt: (pushed[0] as any).step.expiresAt } });
+  assert.deepEqual(pushed[0], { accountId: "acc1", deviceId: "dev1", kind: "pairing", step: { kind: "qr", url: "qr-2", expiresAt: (pushed[0] as any).step.expiresAt } });
   assert.ok(Date.parse((pushed[0] as any).step.expiresAt) <= Date.now() + 20_000);
-  assert.deepEqual(pushed.slice(1), [{ accountId: "acc1", kind: "connected", me }]);
+  assert.deepEqual(pushed.slice(1), [{ accountId: "acc1", deviceId: "dev1", kind: "connected", me }]);
   assert.deepEqual(state.accounts.acc1, { platform: "whatsapp", loginId: "15550000001", me });
 });
 
@@ -112,18 +117,18 @@ test("phone login submits the number and returns the pairing code", async () => 
     { login_id: "l", step_id: "code", type: "display_and_wait", display_and_wait: { type: "code", data: "ABCD-EFGH" } },
   ]);
   assert.deepEqual(
-    { ...(await adapter.login("acc1", "whatsapp", "phone", "+15550000001")), expiresAt: undefined },
+    { ...(await adapter.login("acc1", "dev1", "whatsapp", "phone", "+15550000001")), expiresAt: undefined },
     { kind: "showCode", code: "ABCD-EFGH", expiresAt: undefined },
   );
   assert.ok(calls.includes('input {"phone_number":"+15550000001"}'));
-  await assert.rejects(setup([portalState as never]).adapter.login("acc1", "whatsapp", "phone"), HttpError);
+  await assert.rejects(setup([portalState as never]).adapter.login("acc1", "dev1", "whatsapp", "phone"), HttpError);
 });
 
 test("a failed login is reported to Convex", async () => {
   const { adapter, pushed } = setup([qr("qr-1"), { login_id: "l", step_id: "x", type: "cookies" }]);
-  await adapter.login("acc1", "whatsapp", "qr");
+  await adapter.login("acc1", "dev1", "whatsapp", "qr");
   await settle();
-  assert.deepEqual(pushed, [{ accountId: "acc1", kind: "failed", error: "Unexpected login step cookies" }]);
+  assert.deepEqual(pushed, [{ accountId: "acc1", deviceId: "dev1", kind: "failed", error: "Unexpected login step cookies" }]);
 });
 
 test("an invite joins the portal, catches up on history, then ingests live messages and edits", async () => {
@@ -187,4 +192,48 @@ test("only the current login's logout expires the account", async () => {
   await adapter.handleBridgeStatus("whatsapp", { state_event: "BAD_CREDENTIALS", user_id: OWNER, remote_id: "15550000001", error: "wa-logged-out" });
   assert.deepEqual(pushed, [{ accountId: "acc1", kind: "logged_out", reason: "wa-logged-out" }]);
   assert.equal(state.accounts.acc1!.loginId, undefined);
+});
+
+test("the echo of a refused send is never ingested; an accepted one is", async () => {
+  const { adapter, synced, state } = setup();
+  state.accounts.acc1 = { platform: "whatsapp", loginId: "15550000001" };
+  const conversationId = "whatsapp:15550000002@s.whatsapp.net";
+  const refused = adapter.send("acc1", conversationId, "hi");
+  await settle();
+  const before = synced.length;
+  await adapter.handleTransaction("e1", [
+    ev({ event_id: "$sent", sender: OWNER, origin_server_ts: 700, content: { msgtype: "m.text", body: "hi" } }),
+    ev({ type: "com.beeper.message_send_status", content: { status: "FAIL", "m.relates_to": { event_id: "$sent" } } }),
+  ]);
+  await assert.rejects(refused);
+  assert.equal(synced.length, before);
+
+  const accepted = adapter.send("acc1", conversationId, "hi");
+  await settle();
+  await adapter.handleTransaction("e2", [
+    ev({ event_id: "$ok", sender: OWNER, origin_server_ts: 800, content: { msgtype: "m.text", body: "hi" } }),
+    ev({ type: "com.beeper.message_send_status", content: { status: "SUCCESS", "m.relates_to": { event_id: "$sent" } } }),
+  ]);
+  await accepted;
+  assert.deepEqual(synced.slice(before).map((s) => s.message?.id), ["whatsapp:$ok"]);
+});
+
+test("an edit of an uncached message keeps the original time", async () => {
+  const { adapter, synced, calls, state } = setup();
+  state.accounts.acc1 = { platform: "whatsapp", loginId: "15550000001" };
+  await adapter.handleTransaction("u1", [
+    ev({ event_id: "$edit", origin_server_ts: 9000, content: { body: "* fixed", "m.new_content": { body: "fixed" }, "m.relates_to": { rel_type: "m.replace", event_id: "$gone" } } }),
+  ]);
+  assert.ok(calls.includes("get $gone"));
+  const message = synced.at(-1)!.message;
+  assert.deepEqual([message.id, message.text, message.sentAt], ["whatsapp:$gone", "fixed", new Date(42).toISOString()]);
+});
+
+test("homeserver failures fail the transaction so Synapse retries it", async () => {
+  const { adapter, state, synced } = setup();
+  state.accounts.acc1 = { platform: "whatsapp", loginId: "15550000001" };
+  const event = ev({ room_id: "!down", content: { msgtype: "m.text", body: "x" } });
+  await assert.rejects(adapter.handleTransaction("r1", [event]), MatrixError);
+  await assert.rejects(adapter.handleTransaction("r1", [event]), MatrixError);
+  assert.equal(synced.length, 0);
 });

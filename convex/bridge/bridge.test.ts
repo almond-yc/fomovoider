@@ -58,7 +58,8 @@ async function setup() {
     const calls = stubBridge({ "/v1/login": () => json(qrStep("2@qr-payload")) });
     await as.action(api.bridge.pairing.start, { platform: "whatsapp", input: { method: "qr" } });
     const [account] = await t.run((ctx) => ctx.db.query("connectedAccounts").collect());
-    return { calls, accountId: account!._id };
+    const [device] = await t.run((ctx) => ctx.db.query("bridge_devices").collect());
+    return { calls, accountId: account!._id, deviceId: device!._id };
   };
   return { t, as, post, pair };
 }
@@ -76,16 +77,16 @@ describe("bridge host", () => {
   test("pairing creates a device account and exposes the QR code", async () => {
     const { t, as, pair } = await setup();
     const { calls, accountId } = await pair();
+    const [device] = await t.run((ctx) => ctx.db.query("bridge_devices").collect());
 
     expect(calls).toEqual([
       {
         path: "/v1/login",
-        body: { accountId, platform: "whatsapp", method: "qr" },
+        body: { accountId, deviceId: device!._id, platform: "whatsapp", method: "qr" },
         auth: `Bearer ${SECRET}`,
       },
     ]);
     const account = await t.run((ctx) => ctx.db.get(accountId));
-    const [device] = await t.run((ctx) => ctx.db.query("bridge_devices").collect());
     expect(account).toMatchObject({ status: "pending", session: { platform: "whatsapp", kind: "device", deviceId: device!._id } });
     expect(await as.query(api.bridge.pairing.status, { platform: "whatsapp" })).toMatchObject({
       status: "pairing",
@@ -104,18 +105,18 @@ describe("bridge host", () => {
 
   test("rejects pushes without the shared secret", async () => {
     const { post, pair } = await setup();
-    const { accountId } = await pair();
-    expect((await post({ accountId, kind: "connected", me }, "wrong")).status).toBe(401);
+    const { accountId, deviceId } = await pair();
+    expect((await post({ accountId, deviceId, kind: "connected", me }, "wrong")).status).toBe(401);
   });
 
   test("connects, then ingests conversations and messages", async () => {
     const { t, as, post, pair } = await setup();
-    const { accountId } = await pair();
+    const { accountId, deviceId } = await pair();
 
-    expect((await post({ accountId, kind: "pairing", step: qrStep("2@next") })).status).toBe(204);
+    expect((await post({ accountId, deviceId, kind: "pairing", step: qrStep("2@next") })).status).toBe(204);
     expect((await as.query(api.bridge.pairing.status, { platform: "whatsapp" }))?.step).toEqual(qrStep("2@next"));
 
-    expect((await post({ accountId, kind: "connected", me })).status).toBe(204);
+    expect((await post({ accountId, deviceId, kind: "connected", me })).status).toBe(204);
     expect(await t.run((ctx) => ctx.db.get(accountId))).toMatchObject({ status: "active", me });
     expect(await as.query(api.bridge.pairing.status, { platform: "whatsapp" })).toMatchObject({ status: "connected" });
 
@@ -130,11 +131,12 @@ describe("bridge host", () => {
     expect((await t.run((ctx) => ctx.db.get(accountId)))?.lastSyncedAt).toBeTypeOf("number");
   });
 
-  test("refuses messages before the identity is confirmed", async () => {
-    const { post, pair } = await setup();
-    const { accountId } = await pair();
+  test("refuses messages before the identity is confirmed, retryably", async () => {
+    const { t, post, pair } = await setup();
+    const { accountId, deviceId } = await pair();
     const response = await post({ accountId, kind: "sync", conversations: [conversation], messages: [] });
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(409);
+    expect(await t.run((ctx) => ctx.db.query("conversations").collect())).toEqual([]);
   });
 
   test("refuses accounts that are not bridge accounts", async () => {
@@ -142,13 +144,13 @@ describe("bridge host", () => {
     const accountId = await as.mutation(api.accounts.connect, {
       session: { platform: "whatsapp", kind: "oauth", accessToken: "token" },
     });
-    expect((await post({ accountId, kind: "connected", me })).status).toBe(400);
+    expect((await post({ accountId, deviceId: "x", kind: "connected", me })).status).toBe(400);
     expect(await t.run((ctx) => ctx.db.get(accountId))).toMatchObject({ status: "pending" });
   });
 
   test("refuses a device session pointing at another user's device", async () => {
     const { t, post, pair } = await setup();
-    const { accountId } = await pair();
+    const { accountId, deviceId } = await pair();
     const otherUser = await t.run((ctx) => ctx.db.insert("users", {}));
     const otherDevice = await t.run((ctx) =>
       ctx.db.insert("bridge_devices", { userId: otherUser, platform: "whatsapp", accountId, status: "pairing", updatedAt: 0 }),
@@ -158,16 +160,37 @@ describe("bridge host", () => {
       platform: "whatsapp",
       deviceId: otherDevice,
     });
-    expect((await post({ accountId, kind: "connected", me })).status).toBe(400);
+    expect((await post({ accountId, deviceId, kind: "connected", me })).status).toBe(400);
     await expect(
       t.action(internal.bridge.send.send, { accountId, conversationId: conversation.id, text: "hi" }),
     ).rejects.toThrow(/Not a bridge account/);
   });
 
+  test("results of a superseded pairing attempt are ignored", async () => {
+    const { t, as, post, pair } = await setup();
+    const first = await pair();
+    const second = await pair();
+    expect(second.accountId).toBe(first.accountId);
+    expect((await post({ accountId: first.accountId, deviceId: first.deviceId, kind: "failed", error: "late" })).status).toBe(204);
+    expect((await post({ accountId: second.accountId, deviceId: first.deviceId, kind: "connected", me })).status).toBe(204);
+    expect(await as.query(api.bridge.pairing.status, { platform: "whatsapp" })).toMatchObject({ status: "pairing", step: qrStep("2@qr-payload") });
+    expect(await t.run((ctx) => ctx.db.get(first.accountId))).toMatchObject({ status: "pending" });
+  });
+
+  test("a sync arriving after a logout leaves the account expired", async () => {
+    const { t, post, pair } = await setup();
+    const { accountId, deviceId } = await pair();
+    await post({ accountId, deviceId, kind: "connected", me });
+    await post({ accountId, kind: "logged_out" });
+    expect((await post({ accountId, kind: "sync", conversations: [conversation], messages: [message] })).status).toBe(204);
+    expect(await t.run((ctx) => ctx.db.get(accountId))).toMatchObject({ status: "expired" });
+    expect(await t.run((ctx) => ctx.db.query("messages").collect())).toEqual([]);
+  });
+
   test("a logout on the phone expires the account", async () => {
     const { t, as, post, pair } = await setup();
-    const { accountId } = await pair();
-    await post({ accountId, kind: "connected", me });
+    const { accountId, deviceId } = await pair();
+    await post({ accountId, deviceId, kind: "connected", me });
     expect((await post({ accountId, kind: "logged_out", reason: "LOGGED_OUT" })).status).toBe(204);
     expect(await t.run((ctx) => ctx.db.get(accountId))).toMatchObject({ status: "expired", lastError: { kind: "session_expired" } });
     expect(await as.query(api.bridge.pairing.status, { platform: "whatsapp" })).toMatchObject({ status: "logged_out" });
@@ -175,8 +198,8 @@ describe("bridge host", () => {
 
   test("send goes through the bridge and stores the sent message", async () => {
     const { t, post, pair } = await setup();
-    const { accountId } = await pair();
-    await post({ accountId, kind: "connected", me });
+    const { accountId, deviceId } = await pair();
+    await post({ accountId, deviceId, kind: "connected", me });
     const sent = { ...message, id: "whatsapp:$sent", sender: me, isMine: true, text: "hi" };
     const calls = stubBridge({ "/v1/send": () => json(sent) });
 
@@ -189,8 +212,8 @@ describe("bridge host", () => {
 
   test("a refused send throws and stores nothing", async () => {
     const { t, post, pair } = await setup();
-    const { accountId } = await pair();
-    await post({ accountId, kind: "connected", me });
+    const { accountId, deviceId } = await pair();
+    await post({ accountId, deviceId, kind: "connected", me });
     stubBridge({ "/v1/send": () => json({ error: "whatsapp refused the message" }, 502) });
     await expect(
       t.action(internal.bridge.send.send, { accountId, conversationId: conversation.id, text: "hi" }),

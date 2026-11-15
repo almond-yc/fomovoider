@@ -16,11 +16,13 @@ export const events = httpAction(async (ctx, request) => {
   } catch {
     return new Response("Invalid JSON", { status: 400 });
   }
+  let result: "not_ready" | null;
   try {
-    await ctx.runMutation(internal.bridge.events.apply, { event: event as never });
+    result = await ctx.runMutation(internal.bridge.events.apply, { event: event as never });
   } catch (error) {
     return new Response((error as Error).message, { status: 400 });
   }
+  if (result === "not_ready") return new Response("Account not ready", { status: 409 });
   return new Response(null, { status: 204 });
 });
 

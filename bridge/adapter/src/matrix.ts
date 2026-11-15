@@ -69,6 +69,14 @@ export class Matrix {
     return this.call<MatrixEvent[]>("GET", `/rooms/${encodeURIComponent(roomId)}/state`, asUser);
   }
 
+  event(roomId: string, asUser: string, eventId: string) {
+    return this.call<MatrixEvent>(
+      "GET",
+      `/rooms/${encodeURIComponent(roomId)}/event/${encodeURIComponent(eventId)}`,
+      asUser,
+    );
+  }
+
   async lastEvents(roomId: string, asUser: string, limit: number) {
     const query = `dir=b&limit=${limit}`;
     return (

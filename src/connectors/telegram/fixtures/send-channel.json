@@ -1,0 +1,54 @@
+{
+  "_": "updates",
+  "updates": [
+    {
+      "_": "updateMessageID",
+      "id": 9002,
+      "randomId": "1"
+    },
+    {
+      "_": "updateNewChannelMessage",
+      "message": {
+        "_": "message",
+        "id": 9002,
+        "out": true,
+        "peerId": {
+          "_": "peerChannel",
+          "channelId": "1500000001"
+        },
+        "fromId": {
+          "_": "peerUser",
+          "userId": "5000000001"
+        },
+        "date": 1763236800,
+        "message": "See you Sunday"
+      },
+      "pts": 11,
+      "ptsCount": 1
+    }
+  ],
+  "users": [
+    {
+      "_": "user",
+      "id": "5000000001",
+      "self": true,
+      "accessHash": "9100000000000000001",
+      "firstName": "Ada",
+      "lastName": "Lovelace",
+      "username": "ada_l"
+    }
+  ],
+  "chats": [
+    {
+      "_": "channel",
+      "id": "1500000001",
+      "megagroup": true,
+      "accessHash": "9200000000000000001",
+      "title": "Book club",
+      "username": "bookclub_sf",
+      "date": 1763000000
+    }
+  ],
+  "date": 1763236800,
+  "seq": 0
+}

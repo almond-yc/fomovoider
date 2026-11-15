@@ -1,0 +1,258 @@
+{
+  "_": "messages.dialogs",
+  "dialogs": [
+    {
+      "_": "dialog",
+      "peer": {
+        "_": "peerUser",
+        "userId": "5000000001"
+      },
+      "topMessage": 99,
+      "unreadCount": 0,
+      "readInboxMaxId": 0,
+      "readOutboxMaxId": 0,
+      "unreadMentionsCount": 0,
+      "unreadReactionsCount": 0,
+      "notifySettings": {
+        "_": "peerNotifySettings"
+      }
+    },
+    {
+      "_": "dialog",
+      "peer": {
+        "_": "peerChannel",
+        "channelId": "1500000002"
+      },
+      "topMessage": 500,
+      "unreadCount": 3,
+      "readInboxMaxId": 0,
+      "readOutboxMaxId": 0,
+      "unreadMentionsCount": 0,
+      "unreadReactionsCount": 0,
+      "notifySettings": {
+        "_": "peerNotifySettings"
+      }
+    },
+    {
+      "_": "dialog",
+      "peer": {
+        "_": "peerUser",
+        "userId": "5000000002"
+      },
+      "topMessage": 105,
+      "unreadCount": 2,
+      "readInboxMaxId": 0,
+      "readOutboxMaxId": 0,
+      "unreadMentionsCount": 0,
+      "unreadReactionsCount": 0,
+      "notifySettings": {
+        "_": "peerNotifySettings"
+      }
+    },
+    {
+      "_": "dialog",
+      "peer": {
+        "_": "peerChannel",
+        "channelId": "1500000001"
+      },
+      "topMessage": 9001,
+      "unreadCount": 0,
+      "readInboxMaxId": 0,
+      "readOutboxMaxId": 0,
+      "unreadMentionsCount": 0,
+      "unreadReactionsCount": 0,
+      "notifySettings": {
+        "_": "peerNotifySettings"
+      }
+    },
+    {
+      "_": "dialog",
+      "peer": {
+        "_": "peerChat",
+        "chatId": "4000001"
+      },
+      "topMessage": 104,
+      "unreadCount": 0,
+      "readInboxMaxId": 0,
+      "readOutboxMaxId": 0,
+      "unreadMentionsCount": 0,
+      "unreadReactionsCount": 0,
+      "notifySettings": {
+        "_": "peerNotifySettings"
+      }
+    },
+    {
+      "_": "dialog",
+      "peer": {
+        "_": "peerUser",
+        "userId": "5000000003"
+      },
+      "topMessage": 100,
+      "unreadCount": 1,
+      "readInboxMaxId": 0,
+      "readOutboxMaxId": 0,
+      "unreadMentionsCount": 0,
+      "unreadReactionsCount": 0,
+      "notifySettings": {
+        "_": "peerNotifySettings"
+      }
+    },
+    {
+      "_": "dialogFolder",
+      "folder": {
+        "_": "folder",
+        "id": 1,
+        "title": "Archived"
+      },
+      "peer": {
+        "_": "peerUser",
+        "userId": "5000000009"
+      },
+      "topMessage": 1
+    }
+  ],
+  "messages": [
+    {
+      "_": "message",
+      "id": 99,
+      "out": true,
+      "peerId": {
+        "_": "peerUser",
+        "userId": "5000000001"
+      },
+      "fromId": {
+        "_": "peerUser",
+        "userId": "5000000001"
+      },
+      "date": 1763236780,
+      "message": "note to self"
+    },
+    {
+      "_": "message",
+      "id": 500,
+      "peerId": {
+        "_": "peerChannel",
+        "channelId": "1500000002"
+      },
+      "date": 1763236770,
+      "message": "Headline",
+      "post": true
+    },
+    {
+      "_": "message",
+      "id": 105,
+      "peerId": {
+        "_": "peerUser",
+        "userId": "5000000002"
+      },
+      "date": 1763236740,
+      "message": "Are we still on for Tuesday?"
+    },
+    {
+      "_": "message",
+      "id": 9001,
+      "peerId": {
+        "_": "peerChannel",
+        "channelId": "1500000001"
+      },
+      "fromId": {
+        "_": "peerUser",
+        "userId": "5000000003"
+      },
+      "date": 1763236200,
+      "message": "Chapter 4 by Sunday, please"
+    },
+    {
+      "_": "message",
+      "id": 104,
+      "out": true,
+      "peerId": {
+        "_": "peerChat",
+        "chatId": "4000001"
+      },
+      "fromId": {
+        "_": "peerUser",
+        "userId": "5000000001"
+      },
+      "date": 1763233200,
+      "message": "Landing at 6"
+    },
+    {
+      "_": "message",
+      "id": 100,
+      "peerId": {
+        "_": "peerUser",
+        "userId": "5000000003"
+      },
+      "date": 1763229600,
+      "message": "",
+      "media": {
+        "_": "messageMediaPhoto",
+        "photo": {
+          "_": "photo",
+          "id": "1"
+        }
+      }
+    }
+  ],
+  "chats": [
+    {
+      "_": "channel",
+      "id": "1500000002",
+      "broadcast": true,
+      "accessHash": "9200000000000000002",
+      "title": "Daily News",
+      "date": 1763000000
+    },
+    {
+      "_": "channel",
+      "id": "1500000001",
+      "megagroup": true,
+      "accessHash": "9200000000000000001",
+      "title": "Book club",
+      "username": "bookclub_sf",
+      "date": 1763000000
+    },
+    {
+      "_": "chat",
+      "id": "4000001",
+      "title": "Family",
+      "participantsCount": 4,
+      "date": 1763000000,
+      "version": 1
+    }
+  ],
+  "users": [
+    {
+      "_": "user",
+      "id": "5000000001",
+      "self": true,
+      "accessHash": "9100000000000000001",
+      "firstName": "Ada",
+      "lastName": "Lovelace",
+      "username": "ada_l"
+    },
+    {
+      "_": "user",
+      "id": "5000000002",
+      "contact": true,
+      "accessHash": "9100000000000000002",
+      "firstName": "Bob",
+      "lastName": "Stone",
+      "username": "bobby"
+    },
+    {
+      "_": "user",
+      "id": "5000000003",
+      "accessHash": "9100000000000000003",
+      "firstName": "Carol",
+      "usernames": [
+        {
+          "_": "username",
+          "active": true,
+          "username": "carol_reads"
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import '../global.css';
 import '@/lib/title-font';
 
+import { ChatProviders } from '@/components/chat';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { NAV_THEME, TITLE_FONT } from '@/lib/theme';
@@ -42,7 +43,9 @@ export default function RootLayout() {
     <ConvexClientProvider>
       <ThemeProvider value={NAV_THEME[scheme]}>
         <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-        <RootNavigator />
+        <ChatProviders>
+          <RootNavigator />
+        </ChatProviders>
         <PortalHost />
       </ThemeProvider>
     </ConvexClientProvider>

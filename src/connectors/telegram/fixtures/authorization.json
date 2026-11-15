@@ -1,0 +1,12 @@
+{
+  "_": "auth.authorization",
+  "user": {
+    "_": "user",
+    "id": "5000000001",
+    "self": true,
+    "accessHash": "9100000000000000001",
+    "firstName": "Ada",
+    "lastName": "Lovelace",
+    "username": "ada_l"
+  }
+}

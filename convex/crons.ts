@@ -1,5 +1,6 @@
 import { cronJobs } from "convex/server";
 import { registerAppCrons } from "./retention";
+import { registerTelegramCrons } from "./telegram/crons";
 import { registerXCrons } from "./x/crons";
 
 // The shared cron registry: one register<X>Crons(crons) call per owner.
@@ -7,4 +8,5 @@ import { registerXCrons } from "./x/crons";
 const crons = cronJobs();
 registerAppCrons(crons);
 registerXCrons(crons);
+registerTelegramCrons(crons);
 export default crons;

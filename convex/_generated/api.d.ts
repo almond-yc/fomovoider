@@ -10,6 +10,7 @@
 
 import type * as accounts from "../accounts.js";
 import type * as auth from "../auth.js";
+import type * as chat_connectors from "../chat/connectors.js";
 import type * as conversations from "../conversations.js";
 import type * as crons from "../crons.js";
 import type * as feed from "../feed.js";
@@ -24,10 +25,17 @@ import type * as media from "../media.js";
 import type * as messages from "../messages.js";
 import type * as postStates from "../postStates.js";
 import type * as retention from "../retention.js";
+import type * as telegram_crons from "../telegram/crons.js";
+import type * as telegram_login from "../telegram/login.js";
+import type * as telegram_runtime from "../telegram/runtime.js";
+import type * as telegram_secret from "../telegram/secret.js";
+import type * as telegram_state from "../telegram/state.js";
+import type * as telegram_sync from "../telegram/sync.js";
 import type * as users from "../users.js";
 import type * as x_auth from "../x/auth.js";
 import type * as x_chat from "../x/chat.js";
 import type * as x_crons from "../x/crons.js";
+import type * as x_send from "../x/send.js";
 import type * as x_state from "../x/state.js";
 import type * as x_sync from "../x/sync.js";
 
@@ -40,6 +48,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   accounts: typeof accounts;
   auth: typeof auth;
+  "chat/connectors": typeof chat_connectors;
   conversations: typeof conversations;
   crons: typeof crons;
   feed: typeof feed;
@@ -54,10 +63,17 @@ declare const fullApi: ApiFromModules<{
   messages: typeof messages;
   postStates: typeof postStates;
   retention: typeof retention;
+  "telegram/crons": typeof telegram_crons;
+  "telegram/login": typeof telegram_login;
+  "telegram/runtime": typeof telegram_runtime;
+  "telegram/secret": typeof telegram_secret;
+  "telegram/state": typeof telegram_state;
+  "telegram/sync": typeof telegram_sync;
   users: typeof users;
   "x/auth": typeof x_auth;
   "x/chat": typeof x_chat;
   "x/crons": typeof x_crons;
+  "x/send": typeof x_send;
   "x/state": typeof x_state;
   "x/sync": typeof x_sync;
 }>;

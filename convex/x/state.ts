@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
+import { vMessage } from "../lib/validators";
 import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "../_generated/server";
 
 const syncStateFields = {
@@ -124,6 +125,40 @@ export async function recordSyncRequest(ctx: MutationCtx, accountId: Id<"connect
   else await ctx.db.insert("x_sync_locks", { accountId, leaseUntil: 0, requestedAt: now });
   return true;
 }
+
+// For replies: the caller's X account, and the post only if it is theirs.
+export const sendTarget = internalQuery({
+  args: { userId: v.id("users"), postId: v.string() },
+  handler: async (ctx, { userId, postId }) => {
+    const account = await ctx.db
+      .query("connectedAccounts")
+      .withIndex("by_userId_and_platform", (q) => q.eq("userId", userId).eq("platform", "x"))
+      .unique();
+    const post = await ctx.db
+      .query("posts")
+      .withIndex("by_userId_and_id", (q) => q.eq("userId", userId).eq("id", postId))
+      .unique();
+    return { account, post };
+  },
+});
+
+// After a send the inbox shows it at once: the conversation's preview and
+// order move to the sent message, unless a newer message is already there.
+export const markSent = internalMutation({
+  args: { accountId: v.id("connectedAccounts"), message: vMessage },
+  returns: v.null(),
+  handler: async (ctx, { accountId, message }) => {
+    const account = await ctx.db.get(accountId);
+    if (!account) return null;
+    const conversation = await ctx.db
+      .query("conversations")
+      .withIndex("by_userId_and_id", (q) => q.eq("userId", account.userId).eq("id", message.conversationId))
+      .unique();
+    if (!conversation || conversation.updatedAt > message.sentAt) return null;
+    await ctx.db.patch(conversation._id, { lastMessage: message, updatedAt: message.sentAt });
+    return null;
+  },
+});
 
 export const usageUsed = internalQuery({
   args: { key: v.string() },

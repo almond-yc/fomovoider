@@ -1,5 +1,5 @@
 import { api } from "@/convex/_generated/api";
-import { useAction, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useQuery } from "convex/react";
 import { Asset } from "expo-asset";
 import { File } from "expo-file-system";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -75,7 +75,8 @@ export function XChatProvider({ children }: { children: ReactNode }) {
 }
 
 function XChatEngine({ children }: { children: ReactNode }) {
-  const accounts = useQuery(api.accounts.list);
+  const { isAuthenticated } = useConvexAuth();
+  const accounts = useQuery(api.accounts.list, isAuthenticated ? {} : "skip");
   const x = accounts?.find((a) => a.platform === "x" && a.status === "active");
   const meId = x?.me?.id.slice(2) ?? null;
   const getKeyContext = useAction(api.x.chat.keyContext);

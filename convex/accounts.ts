@@ -1,7 +1,17 @@
 import { v } from "convex/values";
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+} from "./_generated/server";
 import { requireUserId } from "./lib/auth";
 import { vAccountStatus, vConnectorError, vPerson, vPlatform, vSession } from "./lib/validators";
+
+const PURGE_BATCH = 100;
 
 // The app's view of a connected account. Never includes the session.
 export const list = query({
@@ -32,7 +42,9 @@ export const list = query({
 });
 
 // Called by the app after a webview or OAuth login. Replaces any previous
-// session for that platform.
+// session for that platform. The session may belong to a different platform
+// identity than before, so the account is "pending" until the connector
+// confirms who it is with verifyIdentity.
 export const connect = mutation({
   args: { session: vSession },
   returns: v.id("connectedAccounts"),
@@ -45,18 +57,19 @@ export const connect = mutation({
       )
       .unique();
     if (existing) {
-      await ctx.db.patch(existing._id, { session, status: "active", lastError: undefined });
+      await ctx.db.patch(existing._id, { session, status: "pending", lastError: undefined });
       return existing._id;
     }
     return await ctx.db.insert("connectedAccounts", {
       userId,
       platform: session.platform,
       session,
-      status: "active",
+      status: "pending",
     });
   },
 });
 
+// Removes the account, its feed cursor, and the platform's cached content.
 export const disconnect = mutation({
   args: { platform: vPlatform },
   returns: v.null(),
@@ -68,7 +81,9 @@ export const disconnect = mutation({
         q.eq("userId", userId).eq("platform", platform),
       )
       .unique();
-    if (account) await ctx.db.delete(account._id);
+    if (!account) return null;
+    await ctx.db.delete(account._id);
+    await resetPlatform(ctx, userId, platform);
     return null;
   },
 });
@@ -87,6 +102,86 @@ export const listByPlatform = internalQuery({
       .query("connectedAccounts")
       .withIndex("by_platform", (q) => q.eq("platform", platform))
       .collect(),
+});
+
+// Confirms which platform identity the session belongs to, from the
+// connector's account(). Required while the account is "pending". When the
+// identity changed, the previous identity's cursor and cached content are
+// dropped; the account is "resetting" (ingest refuses) until that finishes.
+export const verifyIdentity = internalMutation({
+  args: { accountId: v.id("connectedAccounts"), me: vPerson },
+  returns: v.null(),
+  handler: async (ctx, { accountId, me }) => {
+    const account = await ctx.db.get(accountId);
+    if (!account) throw new Error("Connected account not found");
+    if (me.platform !== account.platform) {
+      throw new Error(`Identity from ${me.platform} on a ${account.platform} account`);
+    }
+    if (account.me === undefined || account.me.id === me.id) {
+      if (account.status !== "resetting") {
+        await ctx.db.patch(accountId, { me, status: "active", lastError: undefined });
+      }
+      return null;
+    }
+    await ctx.db.patch(accountId, { me, status: "resetting", lastError: undefined });
+    await resetPlatform(ctx, account.userId, account.platform, accountId);
+    return null;
+  },
+});
+
+async function resetPlatform(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  platform: string,
+  accountId?: Id<"connectedAccounts">,
+) {
+  const cursor = await ctx.db
+    .query("feedCursors")
+    .withIndex("by_userId_and_platform", (q) =>
+      q.eq("userId", userId).eq("platform", platform),
+    )
+    .unique();
+  if (cursor) await ctx.db.delete(cursor._id);
+  await ctx.scheduler.runAfter(0, internal.accounts.purgeContent, { userId, platform, accountId });
+}
+
+// Deletes a user's cached posts, conversations and messages of one platform
+// in batches, then marks the account (if any) active again.
+export const purgeContent = internalMutation({
+  args: {
+    userId: v.id("users"),
+    platform: vPlatform,
+    accountId: v.optional(v.id("connectedAccounts")),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { userId, platform, accountId } = args;
+    // Ids are namespaced "<platform>:...", and ";" sorts right after ":".
+    const from = `${platform}:`;
+    const to = `${platform};`;
+    const posts = await ctx.db
+      .query("posts")
+      .withIndex("by_userId_and_id", (q) => q.eq("userId", userId).gte("id", from).lt("id", to))
+      .take(PURGE_BATCH);
+    const conversations = await ctx.db
+      .query("conversations")
+      .withIndex("by_userId_and_id", (q) => q.eq("userId", userId).gte("id", from).lt("id", to))
+      .take(PURGE_BATCH);
+    const messages = await ctx.db
+      .query("messages")
+      .withIndex("by_userId_and_id", (q) => q.eq("userId", userId).gte("id", from).lt("id", to))
+      .take(PURGE_BATCH);
+    for (const doc of [...posts, ...conversations, ...messages]) await ctx.db.delete(doc._id);
+    if (Math.max(posts.length, conversations.length, messages.length) === PURGE_BATCH) {
+      await ctx.scheduler.runAfter(0, internal.accounts.purgeContent, args);
+      return null;
+    }
+    if (accountId) {
+      const account = await ctx.db.get(accountId);
+      if (account?.status === "resetting") await ctx.db.patch(accountId, { status: "active" });
+    }
+    return null;
+  },
 });
 
 // Persists a session a connector refreshed mid-call (onSessionRefreshed).
@@ -108,13 +203,9 @@ export const saveSession = internalMutation({
 // lastSyncedAt; session_expired marks the account expired so the app shows
 // a reconnect banner.
 export const recordSync = internalMutation({
-  args: {
-    accountId: v.id("connectedAccounts"),
-    me: v.optional(vPerson),
-    error: v.optional(vConnectorError),
-  },
+  args: { accountId: v.id("connectedAccounts"), error: v.optional(vConnectorError) },
   returns: v.null(),
-  handler: async (ctx, { accountId, me, error }) => {
+  handler: async (ctx, { accountId, error }) => {
     const account = await ctx.db.get(accountId);
     if (!account) throw new Error("Connected account not found");
     if (error) {
@@ -124,12 +215,10 @@ export const recordSync = internalMutation({
       });
       return null;
     }
-    await ctx.db.patch(accountId, {
-      status: "active",
-      lastError: undefined,
-      lastSyncedAt: Date.now(),
-      ...(me ? { me } : {}),
-    });
+    if (account.status === "pending" || account.status === "resetting") {
+      throw new Error(`Account is ${account.status}; call verifyIdentity first`);
+    }
+    await ctx.db.patch(accountId, { status: "active", lastError: undefined, lastSyncedAt: Date.now() });
     return null;
   },
 });

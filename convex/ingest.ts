@@ -17,6 +17,9 @@ import {
 async function loadAccount(ctx: MutationCtx, accountId: Id<"connectedAccounts">) {
   const account = await ctx.db.get(accountId);
   if (!account) throw new Error("Connected account not found");
+  if (account.status === "pending" || account.status === "resetting") {
+    throw new Error(`Account is ${account.status}; call internal.accounts.verifyIdentity first`);
+  }
   return account;
 }
 

@@ -123,7 +123,12 @@ export const vConnectorError = v.union(
   v.object({ kind: v.literal("platform"), message: v.string() }),
 );
 
+// pending: new session, identity not confirmed yet (connector calls
+// accounts.verifyIdentity). resetting: identity changed, old content is being
+// purged. Ingest refuses in both.
 export const vAccountStatus = v.union(
+  v.literal("pending"),
+  v.literal("resetting"),
   v.literal("active"),
   v.literal("expired"),
   v.literal("error"),

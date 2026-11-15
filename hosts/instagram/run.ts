@@ -293,6 +293,8 @@ export class Session {
     };
 
     let previous: { headerValue: string; key: string }[] = [];
+    let lastSignature = "";
+    let stuck = 0;
     let serial = 0;
     while (this.stats.posts + pending.size < this.budget.maxPosts && this.timeLeft() > 0 && knownStreak < 3) {
       const carry = current ? pending.get(current)?.header?.handle : undefined;
@@ -356,6 +358,15 @@ export class Session {
         break;
       }
       if (parts.length) idleScreens = 0;
+      // The same headers several screens in a row means the swipe is not
+      // moving the feed (an overlay, or a reel that captured the gesture).
+      const signature = onScreen.map((s) => s.key).join("|");
+      stuck = signature && signature === lastSignature ? stuck + 1 : 0;
+      lastSignature = signature;
+      if (stuck >= 4) {
+        this.log("feed: the screen stopped moving");
+        break;
+      }
       this.log(`feed: screen with ${parts.length} parts, ${pending.size} pending, ${this.stats.posts} captured`);
       await dwell(1200, 3500);
       await scrollFeed(this.wda, this.size);

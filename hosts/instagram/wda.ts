@@ -22,7 +22,15 @@ export function wdaBaseUrl(udid: string, port = 8100) {
 
 // Starts the WebDriverAgentRunner XCUITest (built once with build-for-testing)
 // and waits until it answers.
+export function isLocked(udid: string) {
+  const out = execFileSync("xcrun", ["devicectl", "device", "info", "lockState", "--device", udid], {
+    encoding: "utf8",
+  });
+  return /passcodeRequired:\s*true/.test(out);
+}
+
 export async function startWda(opts: { udid: string; project: string; derivedData: string }) {
+  if (isLocked(opts.udid)) throw new Error("The iPhone is locked; unlock it and keep it awake for the run");
   const base = wdaBaseUrl(opts.udid);
   if (await ping(base)) return { base, child: undefined as ChildProcess | undefined };
   const child = spawn(

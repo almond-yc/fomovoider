@@ -40,7 +40,7 @@ Mock mode needs no credentials: `createMockXConnector()` returns the same connec
 | `login.login()` | `x.com/i/oauth2/authorize`, `POST /2/oauth2/token` | Public client (no secret on the device), scopes `tweet.read users.read tweet.write dm.read dm.write offline.access`, redirect `fomovoider://oauth/x`. Returns `{ kind: "oauth", accessToken, refreshToken, expiresAt }`. |
 | `account` | `GET /2/users/me` | Validates the session. |
 | `feed` | `GET /2/users/:id/mentions`, then `GET /2/users/:id/timelines/reverse_chronological` | Mentions are part of the feed. Replies and reposts are excluded from the home timeline by default (`feedExclude`). |
-| `conversations` | `GET /2/dm_events` | X has no conversation list, so conversations are derived from one page of DM events. Legacy DM history covers 30 days. |
+| `conversations` | `GET /2/dm_events` | X has no conversation list, so conversations are derived from one page of DM events. Legacy DM history covers 30 days. Participants X didn't expand (a 1:1 page holding only your own messages) are looked up with `GET /2/users?ids=`, billed as DM event reads ($0.01 per user); if that budget is spent they stay unnamed. |
 | `messages` | `GET /2/dm_conversations/:id/dm_events` | Newest first. |
 | `send` | `POST /2/dm_conversations/:id/messages` | Text only (`sendMedia: false`). |
 | `reply` | `POST /2/tweets` | Only posts that @mention the user or quote one of their posts (X rule since 2026-02-23). Links are refused unless `allowReplyUrls` is set, because X bills them at $0.20. |

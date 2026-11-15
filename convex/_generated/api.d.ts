@@ -10,6 +10,7 @@
 
 import type * as accounts from "../accounts.js";
 import type * as auth from "../auth.js";
+import type * as chat_connectors from "../chat/connectors.js";
 import type * as conversations from "../conversations.js";
 import type * as crons from "../crons.js";
 import type * as feed from "../feed.js";
@@ -40,6 +41,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   accounts: typeof accounts;
   auth: typeof auth;
+  "chat/connectors": typeof chat_connectors;
   conversations: typeof conversations;
   crons: typeof crons;
   feed: typeof feed;

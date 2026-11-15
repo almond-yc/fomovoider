@@ -269,6 +269,6 @@ describe("messages.markRead", () => {
 });
 
 test("registered capabilities match the X connector's own", () => {
-  const x = new XConnector({ config: { clientId: "id", dailyPostReadBudget: 1, dailyDmEventReadBudget: 1, dailyWriteBudget: 1 } });
+  const x = new XConnector({ config: { clientId: "id", dailyPostReadBudget: 1, dailyDmEventReadBudget: 1, dailyChatEventReadBudget: 1, dailyWriteBudget: 1 } });
   expect(CHAT_PLATFORMS.x!.capabilities).toEqual(x.capabilities);
 });

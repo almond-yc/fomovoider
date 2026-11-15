@@ -36,13 +36,10 @@ export default function ChatsScreen() {
 
   const needsReconnect = (accounts ?? []).filter((a) => a.status === 'expired').map((a) => platformName(a.platform));
 
-  const open = (conversation: ChatConversation) => {
-    if (conversation.unavailable) {
-      sources.openUnavailable?.(conversation);
-      return;
-    }
-    router.push({ pathname: '/chat/[id]', params: { id: conversation.id } });
-  };
+  const onPress = (conversation: ChatConversation) =>
+    conversation.unavailable
+      ? sources.openUnavailable?.(conversation)
+      : () => router.push({ pathname: '/chat/[id]', params: { id: conversation.id } });
 
   const banner = needsReconnect.length ? (
     <View className="mx-5 mb-1 mt-3 flex-row items-center gap-2 rounded-lg border border-border px-3 py-2.5">
@@ -88,7 +85,7 @@ export default function ChatsScreen() {
         <ConversationRow
           conversation={item}
           now={now}
-          onPress={item.unavailable && !sources.openUnavailable ? undefined : () => open(item)}
+          onPress={onPress(item)}
         />
       )}
       onEndReached={() => status === 'CanLoadMore' && loadMore(PAGE)}

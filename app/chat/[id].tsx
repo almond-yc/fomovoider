@@ -42,6 +42,8 @@ export default function ConversationScreen() {
   const [pending, setPending] = useState<PendingMessage[]>([]);
   const headerHeight = useHeaderHeight();
 
+  const sourceUnlocked = sourceThread?.status === 'unlocked';
+  const unavailable = sourceUnlocked ? undefined : conversation?.unavailable;
   const readable = !!conversation && !conversation.unavailable;
   useEffect(() => {
     if (readable && !sourceThread) markRead({ conversationId: id }).catch(() => undefined);
@@ -58,8 +60,8 @@ export default function ConversationScreen() {
           const result = await sendAction({ conversationId: id, text });
           if (!result.ok) error = sendErrorText(result.error, conversation?.platform ?? '');
         }
-      } catch {
-        error = "Couldn't send. Check your connection.";
+      } catch (err) {
+        error = sourceThread && err instanceof Error ? err.message : "Couldn't send. Check your connection.";
       }
       setPending((all) =>
         error ? all.map((p) => (p.key === key ? { ...p, status: 'failed', error } : p)) : all.filter((p) => p.key !== key)
@@ -102,9 +104,9 @@ export default function ConversationScreen() {
   const group = (conversation?.participants.length ?? 0) > 1;
   const blocked = !conversation
     ? undefined
-    : conversation.unavailable
-      ? unavailableText(conversation.unavailable.reason, conversation.platform)
-      : conversation.sendBlocked
+    : unavailable
+      ? unavailableText(unavailable.reason, conversation.platform)
+      : !sourceThread && conversation.sendBlocked
         ? sendErrorText(conversation.sendBlocked, conversation.platform)
         : undefined;
 
@@ -118,7 +120,7 @@ export default function ConversationScreen() {
         {sourceThread?.error ? (
           <Text className="px-5 py-2 text-center text-sm text-destructive">{sourceThread.error}</Text>
         ) : null}
-        {!conversation || (messages === null && !conversation.unavailable) ? (
+        {!conversation || (messages === null && !unavailable) ? (
           <MessageSkeletons />
         ) : (
           <FlatList

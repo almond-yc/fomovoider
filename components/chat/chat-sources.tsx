@@ -4,6 +4,8 @@ import { createContext, useContext, type ReactNode } from 'react';
 // Messages of one conversation that come from a client-side source instead
 // of messages.list, such as X Chat decrypted on the phone.
 export type SourceThread = {
+  // unlocked: messages can be read and sent; anything else shows the conversation as unavailable.
+  status: 'loading' | 'locked' | 'unlocking' | 'unlocked';
   messages: ChatMessage[] | null;
   error: string | null;
   send(text: string): Promise<void>;
@@ -18,9 +20,9 @@ export type ChatSources = {
   useConversations(rows: ChatConversation[] | undefined): ChatConversation[] | undefined;
   // A thread for conversations this source owns, else null (messages.list is used).
   useThread(conversation: ChatConversation | null | undefined): SourceThread | null;
-  // Called when an unavailable row is tapped; return true when the source
-  // handled it (e.g. opened an unlock screen). Unavailable rows are not openable otherwise.
-  openUnavailable?(conversation: ChatConversation): boolean;
+  // What tapping an unavailable row does (e.g. open an unlock screen), or
+  // undefined when this source can't help; unavailable rows aren't openable otherwise.
+  openUnavailable?(conversation: ChatConversation): (() => void) | undefined;
 };
 
 const NONE: ChatSources = {

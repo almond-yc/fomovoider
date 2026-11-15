@@ -33,7 +33,7 @@ const sharedTables = {
     .index("by_platform", ["platform"]),
 
   // Per user and platform: the connector's opaque cursor and caughtUp flag
-  // from the last sync, and seenUntil, the createdAt of the newest post the
+  // from the last sync, and seenUntil, the createdAt (epoch ms) of the newest post the
   // user had reached when they last hit "You're all caught up". The feed
   // ends at seenUntil.
   feedCursors: defineTable({
@@ -41,12 +41,29 @@ const sharedTables = {
     platform: vPlatform,
     cursor: v.optional(v.string()),
     caughtUp: v.boolean(),
-    seenUntil: v.optional(v.string()),
+    seenUntil: v.optional(v.number()),
   }).index("by_userId_and_platform", ["userId", "platform"]),
 
+  // Dates are epoch ms (see lib/validators.ts). by_createdAt and by_expiresAt
+  // serve the retention cron.
   posts: defineTable({ userId: v.id("users"), ...vPostFields })
     .index("by_userId_and_id", ["userId", "id"])
-    .index("by_userId_and_createdAt", ["userId", "createdAt"]),
+    .index("by_userId_and_createdAt", ["userId", "createdAt"])
+    .index("by_createdAt", ["createdAt"])
+    .index("by_expiresAt", ["expiresAt"]),
+
+  // What a user did with one of their posts. Times are epoch ms.
+  postStates: defineTable({
+    userId: v.id("users"),
+    postId: v.id("posts"),
+    seenAt: v.optional(v.number()),
+    openedAt: v.optional(v.number()),
+    hiddenAt: v.optional(v.number()),
+    savedAt: v.optional(v.number()),
+  })
+    .index("by_userId_and_postId", ["userId", "postId"])
+    .index("by_userId_and_hiddenAt", ["userId", "hiddenAt"])
+    .index("by_postId", ["postId"]),
 
   conversations: defineTable({ userId: v.id("users"), ...vConversationFields })
     .index("by_userId_and_id", ["userId", "id"])

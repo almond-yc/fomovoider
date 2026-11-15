@@ -1,7 +1,8 @@
-export function isoDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) throw new Error(`Invalid ISO date: ${value}`);
-  return date.toISOString();
+// Converts a contract ISODate to the epoch milliseconds stored in every row.
+export function epochMs(value: string): number {
+  const ms = new Date(value).getTime();
+  if (Number.isNaN(ms)) throw new Error(`Invalid ISO date: ${value}`);
+  return ms;
 }
 
 export function assertNamespaced(id: string, platform: string) {

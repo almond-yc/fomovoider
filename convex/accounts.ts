@@ -9,6 +9,7 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
+import { deletePost } from "./lib/posts";
 import { vAccountStatus, vConnectorError, vPerson, vPlatform, vSession } from "./lib/validators";
 
 const PURGE_BATCH = 100;
@@ -145,8 +146,8 @@ async function resetPlatform(
   await ctx.scheduler.runAfter(0, internal.accounts.purgeContent, { userId, platform, accountId });
 }
 
-// Deletes a user's cached posts, conversations and messages of one platform
-// in batches, then marks the account (if any) active again.
+// Deletes a user's cached posts (with their stored media and states),
+// conversations and messages of one platform in batches, then marks the account (if any) active again.
 export const purgeContent = internalMutation({
   args: {
     userId: v.id("users"),
@@ -171,7 +172,8 @@ export const purgeContent = internalMutation({
       .query("messages")
       .withIndex("by_userId_and_id", (q) => q.eq("userId", userId).gte("id", from).lt("id", to))
       .take(PURGE_BATCH);
-    for (const doc of [...posts, ...conversations, ...messages]) await ctx.db.delete(doc._id);
+    for (const post of posts) await deletePost(ctx, post);
+    for (const doc of [...conversations, ...messages]) await ctx.db.delete(doc._id);
     if (Math.max(posts.length, conversations.length, messages.length) === PURGE_BATCH) {
       await ctx.scheduler.runAfter(0, internal.accounts.purgeContent, args);
       return null;

@@ -6,10 +6,15 @@ Dev deployment: `groovy-bobcat-759`. The app reads its URL from `EXPO_PUBLIC_CON
 
 Everything in `convex/` except `convex/<platform>/`:
 
-- `schema.ts`: `sharedTables`, the Convex Auth tables (`users`, ...), `connectedAccounts` (one per user and platform, holding the connector `Session`), `feedCursors` (per user and platform: connector cursor, `caughtUp`, and `seenUntil`, where the feed ends), `posts`, `conversations`, `messages`. Rows mirror the contract's (`src/connectors/types.ts`) `Post`, `Conversation`, `Message` and `Person` types plus the owning `userId`. ISO dates are stored normalized (`Date#toISOString`); `raw` is never stored.
+- `schema.ts`: `sharedTables`, the Convex Auth tables (`users`, ...), `connectedAccounts` (one per user and platform, holding the connector `Session`), `feedCursors` (per user and platform: connector cursor, `caughtUp`, and `seenUntil`, where the feed ends), `posts`, `postStates`, `conversations`, `messages`. Rows mirror the contract's (`src/connectors/types.ts`) `Post`, `Conversation`, `Message` and `Person` types plus the owning `userId`; `raw` is never stored.
+- **Dates are epoch milliseconds.** Connectors pass the contract's ISO strings; ingest converts every date (`createdAt`, `expiresAt`, `extracted.event.startsAt`, `sentAt`, `updatedAt`) to epoch ms, and every public query returns epoch ms. Posts also carry `fetchedAt` (first ingest) and `updatedAt` (last upsert). `feed.markCaughtUp({ until })` takes epoch ms too.
+- **Posts**: `title` holds real titles only (empty titles and titles equal to the author's name or handle are dropped at ingest). `text` is cut to 10,000 characters. Engagement counts are never stored; the validators reject them.
+- **Media**: `media[].width`, `height` and `blurhash` are kept when a connector sends them. For platforms in `PERSIST_MEDIA` (`lib/media.ts`; Instagram on, X off), ingest schedules `internal.media.persist`, which copies each media file and the author's avatar into Convex file storage (`media[].storageId`, `author.avatarStorageId`). `feed.page` returns the stored copy's URL in `url`/`avatarUrl` and falls back to the platform URL.
+- `postStates.ts`: per user and post, `markSeen`, `markOpened`, `setHidden`, `setSaved`, checked against the post's owner. `feed.page` leaves hidden posts out.
+- `retention.ts`: the daily `app:retention` cron (registered with `registerAppCrons` in `crons.ts`) deletes posts past `expiresAt` and posts older than 30 days that the user hasn't saved, with their stored files and states.
 - `lib/validators.ts`: validators for the contract types. Import them instead of redefining.
 - `auth.ts`: Convex Auth, anonymous sign-in for dev builds.
-- Public functions for the app, all scoped to the signed-in user: `feed.page`, `feed.markCaughtUp`, `conversations.list`, `messages.list`, `accounts.list` (never returns sessions), `accounts.connect`, `accounts.disconnect`.
+- Public functions for the app, all scoped to the signed-in user: `feed.page`, `feed.markCaughtUp`, `postStates.*`, `conversations.list`, `messages.list`, `accounts.list` (never returns sessions), `accounts.connect`, `accounts.disconnect`.
 
 ## Connectors own `convex/<platform>/`
 

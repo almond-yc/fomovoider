@@ -1,7 +1,7 @@
 import { Text } from "@/components/ui/text";
 import { api } from "@/convex/_generated/api";
 import { useXChatMessages } from "@/src/xchat";
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, TextInput, View } from "react-native";
@@ -10,7 +10,8 @@ import { FlatList, KeyboardAvoidingView, Platform, Pressable, TextInput, View } 
 // app's conversation screen uses useXChatMessages (src/xchat/README.md).
 export default function XChatThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const conversation = useQuery(api.x.chat.conversation, { conversationId: id });
+  const { isAuthenticated } = useConvexAuth();
+  const conversation = useQuery(api.x.chat.conversation, isAuthenticated ? { conversationId: id } : "skip");
   const chat = useXChatMessages(conversation);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);

@@ -1,5 +1,5 @@
 import { api } from "@/convex/_generated/api";
-import { useAction, useConvex, useQuery } from "convex/react";
+import { useAction, useConvex, useConvexAuth, useQuery } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Id, Person } from "../connectors/types";
 import { type ChatEventRow, type ChatKeyContext, type ChatSendPayload, type DecryptOutcome, chatMessages } from "../connectors/x/chat";
@@ -22,8 +22,11 @@ function peopleOf(conversation: InboxConversation, me: Person | undefined): Map<
   return people;
 }
 
+// Every X Chat query is skipped until a viewer is signed in, so the hooks can
+// mount before sign-in without the queries throwing.
 function useMe(): Person | undefined {
-  const accounts = useQuery(api.accounts.list);
+  const { isAuthenticated } = useConvexAuth();
+  const accounts = useQuery(api.accounts.list, isAuthenticated ? {} : "skip");
   return accounts?.find((a) => a.platform === "x")?.me as Person | undefined;
 }
 
@@ -34,7 +37,8 @@ export function useXChatMessages(conversation: InboxConversation | undefined | n
   const me = useMe();
   const locked = isLockedXChat(conversation);
   const conversationId = conversation?.id ?? "";
-  const stored = useQuery(api.x.chat.events, locked ? { conversationId } : "skip");
+  const { isAuthenticated } = useConvexAuth();
+  const stored = useQuery(api.x.chat.events, isAuthenticated && locked ? { conversationId } : "skip");
   const fetchEvents = useAction(api.x.chat.fetchEvents);
   const getKeyContext = useAction(api.x.chat.keyContext);
   const sendAction = useAction(api.x.chat.send);
@@ -43,13 +47,13 @@ export function useXChatMessages(conversation: InboxConversation | undefined | n
   const keysLoaded = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!locked) return;
+    if (!isAuthenticated || !locked) return;
     try {
       await fetchEvents({ conversationId });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [locked, fetchEvents, conversationId]);
+  }, [isAuthenticated, locked, fetchEvents, conversationId]);
 
   useEffect(() => {
     if (locked && chat.status === "unlocked") void refresh();
@@ -95,6 +99,7 @@ export function useXChatInbox<C extends InboxConversation>(conversations: C[] | 
   const chat = useOptionalXChat() ?? NO_ENGINE;
   const me = useMe();
   const convex = useConvex();
+  const { isAuthenticated } = useConvexAuth();
   const fetchEvents = useAction(api.x.chat.fetchEvents);
   const getKeyContext = useAction(api.x.chat.keyContext);
   const [previews, setPreviews] = useState<Map<string, InboxMessage[]>>(new Map());
@@ -102,7 +107,7 @@ export function useXChatInbox<C extends InboxConversation>(conversations: C[] | 
   const targetKey = targets.map((c) => `${c.id}@${c.updatedAt}`).join("|");
 
   useEffect(() => {
-    if (chat.status !== "unlocked") {
+    if (!isAuthenticated || chat.status !== "unlocked") {
       setPreviews(new Map());
       return;
     }
@@ -131,7 +136,7 @@ export function useXChatInbox<C extends InboxConversation>(conversations: C[] | 
     return () => {
       cancelled = true;
     };
-  }, [chat.status, targetKey]);
+  }, [isAuthenticated, chat.status, targetKey]);
 
   return useMemo(
     () => conversations?.map((c) => (previews.has(c.id) ? unlockedInboxRow(c, previews.get(c.id)!) : c)),

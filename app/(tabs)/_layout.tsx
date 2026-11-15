@@ -4,10 +4,12 @@ import { THEME } from '@/lib/theme';
 import { Tabs } from 'expo-router';
 import { MessageCircle, Newspaper } from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TabsLayout() {
   const { colorScheme } = useColorScheme();
   const theme = THEME[colorScheme ?? 'light'];
+  const { bottom } = useSafeAreaInsets();
 
   return (
     <Tabs
@@ -18,6 +20,7 @@ export default function TabsLayout() {
         tabBarActiveTintColor: theme.foreground,
         tabBarInactiveTintColor: theme.mutedForeground,
         tabBarShowLabel: false,
+        tabBarStyle: { paddingTop: bottom / 2, paddingBottom: bottom / 2 },
       }}>
       <Tabs.Screen
         name="index"

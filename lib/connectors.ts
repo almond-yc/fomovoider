@@ -68,7 +68,7 @@ export const connectors: ClientConnector[] = [
   {
     platform: 'x',
     name: 'Twitter',
-    description: 'Your timeline, mentions and DMs',
+    description: 'Timeline, mentions and DMs',
     // The X app is a confidential client: the device runs PKCE and
     // api.x.auth.connect exchanges the code, stores and verifies the session,
     // and starts the first sync.
@@ -86,7 +86,7 @@ export const connectors: ClientConnector[] = [
   {
     platform: 'instagram',
     name: 'Instagram',
-    description: 'Posts and stories through a paired device',
+    description: 'Posts and stories',
     login: ({ convex, signal, onPairingCode }) => ({
       kind: 'device',
       async pair() {

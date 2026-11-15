@@ -36,10 +36,14 @@ const mediaFields = {
 
 export const vMedia = v.object(mediaFields);
 
-// A post's media and author as stored: the contract's Media and Person plus
-// the Convex file storage copy, for platforms whose URLs expire. Only the
-// media persistence action sets these; connectors never pass them.
+// Media with its Convex file storage copy. Ingest's media persistence sets
+// storageId for platforms whose URLs expire; a connector that uploaded the
+// file itself passes it (one file per post: retention deletes it with the post).
 export const vStoredMedia = v.object({ ...mediaFields, storageId: v.optional(v.id("_storage")) });
+
+// What connectors pass: the contract's Media, whose storageId is a plain
+// string; ingest checks it names an existing file before storing it.
+export const vMediaInput = v.object({ ...mediaFields, storageId: v.optional(v.string()) });
 
 export const vStoredPerson = v.object({
   ...vPerson.fields,
@@ -105,6 +109,7 @@ export const vPostFields = {
 // is accepted and dropped: it is a debugging escape hatch and is never stored.
 const postInputFields = {
   ...postFields,
+  media: v.array(vMediaInput),
   createdAt: v.string(),
   expiresAt: v.optional(v.string()),
   extracted: v.optional(
@@ -124,7 +129,7 @@ const postInputFields = {
 
 export const vPostInput = v.object({
   ...postInputFields,
-  quoted: v.optional(v.object(postInputFields)),
+  quoted: v.optional(v.object({ ...postInputFields, media: v.array(vMedia) })),
 });
 
 const messageFields = {

@@ -20,6 +20,7 @@ export interface Media {
   altText?: string;
   durationSec?: number;
   blurhash?: string;       // tiny placeholder painted while the media loads
+  storageId?: string;      // Convex _storage id of a file the connector already uploaded; posts only, ingest skips its own copy
 }
 
 export interface Post {

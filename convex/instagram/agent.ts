@@ -188,7 +188,7 @@ export const submitItems = mutation({
           media.map(async ({ storageId, ...rest }) => {
             const url = await ctx.storage.getUrl(storageId);
             if (!url) throw new Error(`Upload ${storageId} not found`);
-            return { ...rest, url };
+            return { ...rest, url, storageId };
           }),
         ),
       });

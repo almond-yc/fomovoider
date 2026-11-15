@@ -69,6 +69,9 @@ export const vExtracted = v.object({
 // 1 MB document limit.
 export const MAX_TEXT_LENGTH = 10_000;
 
+// users.setSlop refuses a longer slopDescription (after trimming).
+export const MAX_SLOP_DESCRIPTION_LENGTH = 1_000;
+
 const postFields = {
   id: v.string(),
   platform: vPlatform,

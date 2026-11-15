@@ -17,8 +17,26 @@ import { instagramTables } from "./instagram/schema";
 import { xTables } from "./x/schema";
 
 const sharedTables = {
-  // users, authSessions, authAccounts, ... from Convex Auth.
+  // authSessions, authAccounts, ... from Convex Auth.
   ...authTables,
+
+  // Convex Auth's users table plus onboarding. slopDescription is the user's
+  // own words for what they don't want in their feed (trimmed, at most
+  // MAX_SLOP_DESCRIPTION_LENGTH characters, set by users.setSlop);
+  // onboardedAt (epoch ms) is when they first saved it.
+  users: defineTable({
+    name: v.optional(v.string()),
+    image: v.optional(v.string()),
+    email: v.optional(v.string()),
+    emailVerificationTime: v.optional(v.number()),
+    phone: v.optional(v.string()),
+    phoneVerificationTime: v.optional(v.number()),
+    isAnonymous: v.optional(v.boolean()),
+    slopDescription: v.optional(v.string()),
+    onboardedAt: v.optional(v.number()),
+  })
+    .index("email", ["email"])
+    .index("phone", ["phone"]),
 
   // One per user and platform. Holds the connector Session (secret).
   connectedAccounts: defineTable({

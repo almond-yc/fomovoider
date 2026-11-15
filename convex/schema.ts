@@ -66,7 +66,6 @@ const sharedTables = {
     savedAt: v.optional(v.number()),
   })
     .index("by_userId_and_postId", ["userId", "postId"])
-    .index("by_userId_and_hiddenAt", ["userId", "hiddenAt"])
     .index("by_postId", ["postId"]),
 
   conversations: defineTable({ userId: v.id("users"), ...vConversationFields })

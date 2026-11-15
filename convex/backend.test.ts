@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import type { Media } from "../src/connectors/types";
 import { RELEVANCE_THRESHOLD } from "./feed";
 import crons from "./crons";
 import { RETENTION_DAYS } from "./retention";
@@ -698,9 +699,9 @@ describe("layout metadata", () => {
     const { t, signUp, connect } = await setup();
     const alice = await signUp();
     const accountId = await connect(alice, "instagram");
-    const media = [
-      { kind: "image" as const, url: "https://cdn.ig/a.jpg", width: 1080, height: 1350, blurhash: "LEHV6nWB2yk8" },
-      { kind: "video" as const, url: "https://cdn.ig/v.mp4", durationSec: 12 },
+    const media: Media[] = [
+      { kind: "image", url: "https://cdn.ig/a.jpg", width: 1080, height: 1350, blurhash: "LEHV6nWB2yk8" },
+      { kind: "video", url: "https://cdn.ig/v.mp4", durationSec: 12 },
     ];
     await t.mutation(internal.ingest.upsertPosts, { accountId, posts: [post("instagram", 1, { media })] });
     await t.finishAllScheduledFunctions(() => {});
@@ -742,6 +743,13 @@ describe("post states", () => {
     expect([seenAt, savedAt].every((at) => at! >= 1_000 && at! < 2_000)).toBe(true);
     expect([openedAt, hiddenAt].every((at) => at! >= 2_000)).toBe(true);
     expect(ids(await alice.as.query(api.feed.page, page))).toEqual(["x:2"]);
+    // Pages stay paginated: a hidden post only shortens the page it falls on.
+    const first = await alice.as.query(api.feed.page, { paginationOpts: { numItems: 1, cursor: null } });
+    expect([ids(first), first.isDone]).toEqual([["x:2"], false]);
+    const second = await alice.as.query(api.feed.page, {
+      paginationOpts: { numItems: 1, cursor: first.continueCursor },
+    });
+    expect(ids(second)).toEqual([]);
 
     await alice.as.mutation(api.postStates.setHidden, { postId: x1, hidden: false });
     await alice.as.mutation(api.postStates.setSaved, { postId: x1, saved: false });

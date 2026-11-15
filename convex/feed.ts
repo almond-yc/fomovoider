@@ -31,10 +31,6 @@ export const page = query({
     const seen = cursors.flatMap((c) =>
       c.seenUntil === undefined ? [] : [{ platform: c.platform, seenUntil: c.seenUntil }],
     );
-    const hidden = await ctx.db
-      .query("postStates")
-      .withIndex("by_userId_and_hiddenAt", (q) => q.eq("userId", userId).gte("hiddenAt", 0))
-      .collect();
     const now = Date.now();
     const result = await ctx.db
       .query("posts")
@@ -50,16 +46,25 @@ export const page = query({
           ...seen.map(({ platform, seenUntil }) =>
             q.or(q.neq(q.field("platform"), platform), q.gt(q.field("createdAt"), seenUntil)),
           ),
-          ...hidden.map(({ postId }) => q.neq(q.field("_id"), postId)),
         ),
       )
       .paginate(paginationOpts);
     const connectorsCaughtUp = accounts.every(
       ({ platform }) => cursors.find((c) => c.platform === platform)?.caughtUp === true,
     );
+    // Hidden posts are dropped from the page after it is read, so a page can
+    // come back shorter than numItems; reads stay bounded by the page size.
+    const visible = [];
+    for (const post of result.page) {
+      const state = await ctx.db
+        .query("postStates")
+        .withIndex("by_userId_and_postId", (q) => q.eq("userId", userId).eq("postId", post._id))
+        .unique();
+      if (state?.hiddenAt === undefined) visible.push(await resolvePost(ctx, post));
+    }
     return {
       ...result,
-      page: await Promise.all(result.page.map((post) => resolvePost(ctx, post))),
+      page: visible,
       caughtUp: result.isDone && connectorsCaughtUp,
     };
   },

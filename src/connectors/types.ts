@@ -19,6 +19,7 @@ export interface Media {
   height?: number;
   altText?: string;
   durationSec?: number;
+  blurhash?: string;       // tiny placeholder painted while the media loads
 }
 
 export interface Post {

@@ -83,8 +83,8 @@ describe("copy", () => {
       "X is limiting messages. Try again after 3:40 PM.",
     );
     expect(sendErrorText({ kind: "budget_exhausted" }, "x")).toBe("Today's X sending allowance is used up. It resets tomorrow.");
-    expect(sendErrorText({ kind: "unsupported", capability: "sendMedia" }, "telegram")).toBe(
-      "Photos and videos can't be sent to Telegram yet.",
+    expect(sendErrorText({ kind: "unsupported", capability: "sendMedia" }, "x")).toBe(
+      "Photos and videos can't be sent to X yet.",
     );
     expect(sendErrorText({ kind: "unsupported", capability: "sendMessage" }, "instagram")).toBe(
       "Fomovoider can't send to this Instagram chat yet.",

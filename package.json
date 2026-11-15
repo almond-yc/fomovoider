@@ -11,7 +11,6 @@
     "@rn-primitives/portal": "^1.5.3",
     "@rn-primitives/separator": "^1.5.2",
     "@rn-primitives/slot": "^1.5.2",
-    "big-integer": "^1.6.52",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "convex": "^1.50.0",
@@ -45,8 +44,7 @@
     "react-native-webview": "14.0.1",
     "react-native-worklets": "0.13.0",
     "tailwind-merge": "^3.7.0",
-    "tailwindcss-animate": "^1.0.7",
-    "telegram": "^2.26.22"
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",
@@ -71,8 +69,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "x:smoke": "tsx scripts/x-live-smoke.mjs",
-    "x:chat-engine": "node scripts/build-xchat-engine.mjs",
-    "telegram:smoke": "tsx scripts/telegram-live-smoke.mts"
+    "x:chat-engine": "node scripts/build-xchat-engine.mjs"
   },
   "private": true
 }

@@ -11,10 +11,9 @@ import {
   vPostFields,
   vSession,
 } from "./lib/validators";
-// Connector-owned tables: one import and one spread per connector, e.g.
-// import { instagramTables } from "./instagram/schema";
+// Connector-owned tables: one import and one spread per connector.
 // See convex/README.md, "Connector-owned tables".
-import { telegramTables } from "./telegram/schema";
+import { instagramTables } from "./instagram/schema";
 import { xTables } from "./x/schema";
 
 const sharedTables = {
@@ -86,6 +85,5 @@ const sharedTables = {
 export default defineSchema({
   ...sharedTables,
   ...xTables,
-  ...telegramTables,
-  // ...instagramTables,
+  ...instagramTables,
 });

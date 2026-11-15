@@ -1,6 +1,7 @@
 import '../global.css';
 
 import { NAV_THEME } from '@/lib/theme';
+import { ConvexClientProvider } from '@/src/providers/ConvexClientProvider';
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -36,10 +37,12 @@ export default function RootLayout() {
   if (!fontsLoaded && !fontError) return null;
 
   return (
-    <ThemeProvider value={NAV_THEME[scheme]}>
-      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-      <Stack screenOptions={{ headerShown: false }} />
-      <PortalHost />
-    </ThemeProvider>
+    <ConvexClientProvider>
+      <ThemeProvider value={NAV_THEME[scheme]}>
+        <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+        <Stack screenOptions={{ headerShown: false }} />
+        <PortalHost />
+      </ThemeProvider>
+    </ConvexClientProvider>
   );
 }

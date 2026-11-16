@@ -7,7 +7,8 @@ export type SetPasscodeError = Extract<SetPasscodeResult, { ok: false }>['error'
 
 // Provided by app/_layout.tsx only while the X Chat passcode step of
 // onboarding is showing, right after Connect X on the Connect screen. finish()
-// ends the step for good, whether the user set a passcode or skipped.
+// ends the step for good, whether the user set a passcode or skipped, and
+// returns the user to Connect.
 export const XChatOnboardingContext = createContext<{ finish(): void } | null>(null);
 
 // What app/x-chat-passcode.tsx shows when api.x.chatNode.setPasscode fails.

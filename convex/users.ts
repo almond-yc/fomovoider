@@ -7,7 +7,7 @@ import { MAX_SLOP_DESCRIPTION_LENGTH } from "./lib/validators";
 
 // The signed-in user, their onboarding answer and their connected accounts,
 // or null when signed out. The app gates on it (no onboardedAt: the slop
-// screen; no connected account: the Connect screen) and the Settings page
+// screen; no connected account or connectStepPending: the Connect screen) and the Settings page
 // lists it. Unlike accounts.list it doesn't throw when signed out, so it stays
 // safe to subscribe to across sign-in and sign-out.
 export const viewer = query({
@@ -18,6 +18,7 @@ export const viewer = query({
       email: v.optional(v.string()),
       slopDescription: v.optional(v.string()),
       onboardedAt: v.optional(v.number()),
+      connectStepPending: v.optional(v.boolean()),
       accounts: v.array(vAccountView),
     }),
   ),
@@ -30,13 +31,14 @@ export const viewer = query({
       email: user.email,
       slopDescription: user.slopDescription,
       onboardedAt: user.onboardedAt,
+      connectStepPending: user.connectStepPending,
       accounts: await listAccounts(ctx, userId),
     };
   },
 });
 
-// Saves the onboarding answer. The first save also stamps onboardedAt;
-// later edits keep it.
+// Saves the onboarding answer. The first save also stamps onboardedAt and
+// opens the Connect step (connectStepPending); later edits keep both.
 export const setSlop = mutation({
   args: { slopDescription: v.string() },
   returns: v.null(),
@@ -51,8 +53,22 @@ export const setSlop = mutation({
     if (user === null) throw new Error("User not found");
     await ctx.db.patch(userId, {
       slopDescription,
-      onboardedAt: user.onboardedAt ?? Date.now(),
+      ...(user.onboardedAt === undefined ? { onboardedAt: Date.now(), connectStepPending: true } : {}),
     });
+    return null;
+  },
+});
+
+// Continue on the Connect screen: ends onboarding's Connect step, so the app
+// opens the tabs from now on. Needs at least one connected account.
+export const finishConnectStep = mutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const userId = await requireUserId(ctx);
+    const accounts = await listAccounts(ctx, userId);
+    if (!accounts.some((a) => a.status === "active")) throw new Error("Connect an account first");
+    await ctx.db.patch(userId, { connectStepPending: undefined });
     return null;
   },
 });

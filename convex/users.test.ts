@@ -100,6 +100,18 @@ describe("users.setSlop", () => {
     expect(edited?.onboardedAt).toBe(Date.UTC(2026, 10, 15));
   });
 
+  test("opens the Connect step on the first save only", async () => {
+    const { t, signUp } = await setup();
+    const alice = await signUp();
+    expect((await alice.as.query(api.users.viewer, {}))?.connectStepPending).toBeUndefined();
+    await alice.as.mutation(api.users.setSlop, { slopDescription: "ragebait" });
+    expect((await alice.as.query(api.users.viewer, {}))?.connectStepPending).toBe(true);
+
+    await t.run((ctx) => ctx.db.patch(alice.userId, { connectStepPending: undefined }));
+    await alice.as.mutation(api.users.setSlop, { slopDescription: "crypto shilling" });
+    expect((await alice.as.query(api.users.viewer, {}))?.connectStepPending).toBeUndefined();
+  });
+
   test("rejects empty and whitespace-only answers", async () => {
     const { signUp } = await setup();
     const alice = await signUp();
@@ -131,5 +143,31 @@ describe("users.setSlop", () => {
     const bobViewer = await bob.as.query(api.users.viewer, {});
     expect(bobViewer?.slopDescription).toBeUndefined();
     expect(bobViewer?.onboardedAt).toBeUndefined();
+  });
+});
+
+describe("users.finishConnectStep", () => {
+  test("rejects signed-out callers", async () => {
+    const { t } = await setup();
+    await expect(t.mutation(api.users.finishConnectStep, {})).rejects.toThrow("Not signed in");
+  });
+
+  test("needs an active account, then ends the Connect step for good", async () => {
+    const { t, signUp } = await setup();
+    const alice = await signUp();
+    await alice.as.mutation(api.users.setSlop, { slopDescription: "ragebait" });
+    await expect(alice.as.mutation(api.users.finishConnectStep, {})).rejects.toThrow("Connect an account first");
+
+    const accountId = await alice.as.mutation(api.accounts.connect, {
+      session: { platform: "x", kind: "oauth", accessToken: "secret" },
+    });
+    await expect(alice.as.mutation(api.users.finishConnectStep, {})).rejects.toThrow("Connect an account first");
+    const me = { id: "x:1", platform: "x", handle: "alice", displayName: "Alice" };
+    await t.mutation(internal.accounts.verifyIdentity, { accountId, me });
+
+    await alice.as.mutation(api.users.finishConnectStep, {});
+    expect((await alice.as.query(api.users.viewer, {}))?.connectStepPending).toBeUndefined();
+    await alice.as.mutation(api.users.setSlop, { slopDescription: "crypto shilling" });
+    expect((await alice.as.query(api.users.viewer, {}))?.connectStepPending).toBeUndefined();
   });
 });

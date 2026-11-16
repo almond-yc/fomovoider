@@ -33,7 +33,14 @@
       "expo-secure-store",
       "expo-image",
       "expo-video",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Fomovoider uses the microphone so you can speak your answer.",
+          "speechRecognitionPermission": "Fomovoider uses speech recognition to turn your voice into text."
+        }
+      ]
     ],
     "scheme": "fomovoider"
   }

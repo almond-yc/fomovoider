@@ -58,7 +58,7 @@ export function BriefScreen() {
 
   return (
     <View className="flex-1 bg-background">
-      <SafeAreaView edges={{ top: true }}>
+      <SafeAreaView edges={{ top: true }} style={{ flex: 1 }}>
         {dates === undefined ? (
           <Loading />
         ) : (

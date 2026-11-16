@@ -66,19 +66,65 @@ describe("anonymous sign-in", () => {
   });
 });
 
+describe("password sign-in", () => {
+  test("signs up a user who still has to onboard, then signs in", async () => {
+    const t = convexTest(schema, modules);
+    stubAuthEnv();
+    const params = { email: "ada@example.com", password: "correct-horse-1" };
+    const signedUp = await t.action(api.auth.signIn, {
+      provider: "password",
+      params: { ...params, flow: "signUp" },
+    });
+    expect(signedUp.tokens?.token).toEqual(expect.any(String));
+    const users = await t.run((ctx) => ctx.db.query("users").collect());
+    expect(users).toHaveLength(1);
+    expect(users[0].email).toBe("ada@example.com");
+    const as = t.withIdentity({ subject: `${users[0]._id}|session` });
+    expect(await as.query(api.users.viewer, {})).toEqual({ email: "ada@example.com", accounts: [] });
+
+    const signedIn = await t.action(api.auth.signIn, {
+      provider: "password",
+      params: { ...params, flow: "signIn" },
+    });
+    expect(signedIn.tokens?.token).toEqual(expect.any(String));
+    await expect(
+      t.action(api.auth.signIn, {
+        provider: "password",
+        params: { ...params, password: "wrong-password", flow: "signIn" },
+      }),
+    ).rejects.toThrow();
+  });
+});
+
+describe("OAuth providers", () => {
+  test("are refused while commented out", async () => {
+    const t = convexTest(schema, modules);
+    stubAuthEnv();
+    for (const provider of ["google", "apple"]) {
+      await expect(t.action(api.auth.signIn, { provider })).rejects.toThrow(
+        `Provider \`${provider}\` is not configured`,
+      );
+    }
+  });
+});
+
 describe("OAuth redirects", () => {
-  test("allow the app schemes and SITE_URL", () => {
-    expect(isAllowedRedirect("fomovoider://", SITE_URL)).toBe(true);
-    expect(isAllowedRedirect("exp://192.168.1.2:8081", SITE_URL)).toBe(true);
-    expect(isAllowedRedirect(SITE_URL, SITE_URL)).toBe(true);
-    expect(isAllowedRedirect(`${SITE_URL}/`, `${SITE_URL}/`)).toBe(true);
-    expect(isAllowedRedirect(`${SITE_URL}/feed?x=1`, SITE_URL)).toBe(true);
+  test("allow the app scheme and SITE_URL", () => {
+    expect(isAllowedRedirect("fomovoider://", SITE_URL, false)).toBe(true);
+    expect(isAllowedRedirect(SITE_URL, SITE_URL, false)).toBe(true);
+    expect(isAllowedRedirect(`${SITE_URL}/`, `${SITE_URL}/`, false)).toBe(true);
+    expect(isAllowedRedirect(`${SITE_URL}/feed?x=1`, SITE_URL, false)).toBe(true);
+  });
+
+  test("allow exp:// only when Expo Go is allowed", () => {
+    expect(isAllowedRedirect("exp://192.168.1.2:8081", SITE_URL, false)).toBe(false);
+    expect(isAllowedRedirect("exp://192.168.1.2:8081", SITE_URL, true)).toBe(true);
   });
 
   test("refuse other origins", () => {
-    expect(isAllowedRedirect("https://evil.example", SITE_URL)).toBe(false);
-    expect(isAllowedRedirect(`${SITE_URL}.evil.example`, SITE_URL)).toBe(false);
-    expect(isAllowedRedirect("http://localhost:80810", SITE_URL)).toBe(false);
-    expect(isAllowedRedirect("javascript:alert(1)", SITE_URL)).toBe(false);
+    expect(isAllowedRedirect("https://evil.example", SITE_URL, true)).toBe(false);
+    expect(isAllowedRedirect(`${SITE_URL}.evil.example`, SITE_URL, true)).toBe(false);
+    expect(isAllowedRedirect("http://localhost:80810", SITE_URL, true)).toBe(false);
+    expect(isAllowedRedirect("javascript:alert(1)", SITE_URL, true)).toBe(false);
   });
 });

@@ -23,12 +23,12 @@ const DevAnonymous = ConvexCredentials({
   },
 });
 
-// Native builds finish OAuth in the app (fomovoider://, or exp:// in Expo Go);
-// web finishes on SITE_URL.
-const APP_REDIRECT_PREFIXES = ["fomovoider://", "exp://"];
-
-export function isAllowedRedirect(redirectTo: string, siteUrl: string) {
-  if (APP_REDIRECT_PREFIXES.some((prefix) => redirectTo.startsWith(prefix))) return true;
+// Native builds finish OAuth in the app (fomovoider://); web finishes on
+// SITE_URL. Expo Go's exp:// can point at any host, so it is accepted only on
+// dev deployments that set AUTH_ALLOW_EXPO_GO=true.
+export function isAllowedRedirect(redirectTo: string, siteUrl: string, allowExpoGo: boolean) {
+  if (redirectTo.startsWith("fomovoider://")) return true;
+  if (redirectTo.startsWith("exp://")) return allowExpoGo;
   const base = siteUrl.replace(/\/$/, "");
   if (!redirectTo.startsWith(base)) return false;
   const after = redirectTo[base.length];
@@ -61,7 +61,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       if (redirectTo.startsWith("/") || redirectTo.startsWith("?")) {
         return `${siteUrl.replace(/\/$/, "")}${redirectTo}`;
       }
-      if (!isAllowedRedirect(redirectTo, siteUrl)) {
+      if (!isAllowedRedirect(redirectTo, siteUrl, process.env.AUTH_ALLOW_EXPO_GO === "true")) {
         throw new Error(`Invalid redirectTo ${redirectTo}`);
       }
       return redirectTo;

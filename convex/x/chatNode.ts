@@ -173,6 +173,7 @@ async function fetchAll(ctx: ActionCtx, accountId: Id<"connectedAccounts">, conv
     }
   } catch (err) {
     if (!(err instanceof Error && /budget/i.test(err.message))) console.error("X Chat fetch failed:", errorText(err));
+    await ctx.runMutation(internal.x.chat.markFetchRetry, { accountId, conversationId });
   }
   return false;
 }

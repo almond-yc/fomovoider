@@ -432,6 +432,14 @@ describe("X Chat passcode", () => {
     expect(row.lastMessage).toMatchObject({ text: "plain:RVZFTlQtMTE=" });
     const usage = await t.run((ctx) => ctx.db.query("x_usage").collect());
     expect(usage.find((u) => u.key.includes(":chatEventReads:"))?.used).toBe(6);
+    const [position] = await t.run((ctx) => ctx.db.query("x_chat_cursors").collect());
+    expect(position.retry).toBe(true);
+
+    vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "100");
+    await t.action(internal.x.chatNode.decryptConversations, { accountId, conversations: [] });
+    const [after] = await t.run((ctx) => ctx.db.query("x_chat_cursors").collect());
+    expect(after.retry).toBeUndefined();
+    expect(await t.run((ctx) => ctx.db.query("messages").collect())).toEqual(expect.arrayContaining([expect.objectContaining({ text: "plain:RVZFTlQtMw==" })]));
   });
 
   test("opening a locked X Chat row decrypts it on demand once keys are saved", async () => {

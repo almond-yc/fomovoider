@@ -334,6 +334,25 @@ export const conversationRow = internalQuery({
 // Server decrypt work left over from earlier runs, oldest pass first: rows
 // still locked in the inbox (deferred past a run's limit, or their event
 // fetch didn't finish) and conversations whose event pass stopped mid-way.
+// An event fetch for this conversation failed before it could save a page
+// (budget, X error): keep it in pendingConversations until a fetch stores
+// events again (storeEvents replaces the row without the flag).
+export const markFetchRetry = internalMutation({
+  args: { accountId: v.id("connectedAccounts"), conversationId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { accountId, conversationId }) => {
+    const account = await ctx.db.get(accountId);
+    if (!account?.me) return null;
+    const position = await ctx.db
+      .query("x_chat_cursors")
+      .withIndex("by_userId_and_conversationId", (q) => q.eq("userId", account.userId).eq("conversationId", conversationId))
+      .unique();
+    if (position) await ctx.db.patch(position._id, { retry: true });
+    else await ctx.db.insert("x_chat_cursors", { userId: account.userId, xUserId: account.me.id, conversationId, retry: true });
+    return null;
+  },
+});
+
 export const pendingConversations = internalQuery({
   args: { accountId: v.id("connectedAccounts"), limit: v.number() },
   handler: async (ctx, { accountId, limit }): Promise<Doc<"conversations">[]> => {
@@ -342,7 +361,7 @@ export const pendingConversations = internalQuery({
     const unfinished = await ctx.db
       .query("x_chat_cursors")
       .withIndex("by_userId_and_conversationId", (q) => q.eq("userId", account.userId))
-      .filter((q) => q.neq(q.field("cursor"), undefined))
+      .filter((q) => q.or(q.neq(q.field("cursor"), undefined), q.eq(q.field("retry"), true)))
       .take(limit);
     const rows: Doc<"conversations">[] = [];
     for (const cursor of unfinished) {

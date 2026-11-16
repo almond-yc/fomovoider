@@ -7,6 +7,8 @@ import type { Id } from '@/convex/_generated/dataModel';
 import { connectors } from '@/lib/connectors';
 import type { FunctionReturnType } from 'convex/server';
 import { useConvex, useConvexAuth, useMutation, usePaginatedQuery, useQuery } from 'convex/react';
+import { router, Stack } from 'expo-router';
+import { HeaderBackButton } from 'expo-router/react-navigation';
 import { CircleCheck, Link2 } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { Alert, FlatList, Pressable, RefreshControl, View } from 'react-native';
@@ -15,8 +17,30 @@ type Account = FunctionReturnType<typeof api.accounts.list>[number];
 
 const PAGE_SIZE = 20;
 
+// Opened by link, it has no screen to go back to, so its back button goes to
+// the tabs.
+export default function FullFeedScreen() {
+  const canGoBack = router.canGoBack();
+  return (
+    <>
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: 'Full feed',
+          headerShadowVisible: false,
+          headerBackButtonDisplayMode: 'minimal',
+          headerTitleStyle: { fontFamily: 'Inter_600SemiBold' },
+          headerLeft: canGoBack
+            ? undefined
+            : (props) => <HeaderBackButton {...props} displayMode="minimal" onPress={() => router.replace('/')} />,
+        }}
+      />
+      <FeedScreen />
+    </>
+  );
+}
 
-export default function FeedScreen() {
+function FeedScreen() {
   const convex = useConvex();
   const { isAuthenticated } = useConvexAuth();
   const accounts = useQuery(api.accounts.list, isAuthenticated ? {} : 'skip');
@@ -125,7 +149,7 @@ function FeedSession({
     ]);
   };
 
-  if (status === 'LoadingFirstPage') return <SkeletonList />;
+  if (reached === null && status === 'LoadingFirstPage') return <SkeletonList />;
   if (caughtUp && posts.length === 0) {
     return (
       <FlatList

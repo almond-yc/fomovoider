@@ -7,7 +7,7 @@ const PASSCODE_KEY = "xchat.passcode";
 const BIOMETRIC_PREF_KEY = "xchat.biometric";
 const CONSENT_KEY = "xchat.consent";
 
-export const CONSENT_VERSION = "2026-11-15-server";
+export const CONSENT_VERSION = "2026-11-16-server";
 
 const protectedOptions: SecureStore.SecureStoreOptions = {
   requireAuthentication: true,

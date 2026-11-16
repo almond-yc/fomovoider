@@ -10,7 +10,7 @@ export const CONSENT_POINTS = [
   "Your X chats then sync in the background like your other messages, and the decrypted messages are kept in your Fomovoider inbox.",
   "Anyone who got those keys could read your X chats, past and future, and send messages as you. Fomovoider keeps them encrypted and never shows them to anyone, including you.",
   "X allows 20 wrong passcode tries. After that, X deletes your key backup and you may lose access to older encrypted messages. We only try a passcode when you enter it, never again on our own.",
-  "You can remove the saved keys at any time in Settings, and they're deleted when you disconnect X. If you change your X Chat passcode or keys in the X app, you'll be asked for it again.",
+  "You can remove the saved keys at any time in Settings, and they're deleted when you disconnect X. If your X Chat keys change in the X app, you'll be asked for your passcode again.",
 ];
 
 export const CONSENT_CHECKBOX = "I agree that Fomovoider stores my X Chat keys on its servers to read and send my X Chat messages.";

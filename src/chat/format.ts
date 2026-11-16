@@ -134,11 +134,31 @@ export function sendErrorText(error: ConnectorError, platform: string, locale?: 
   }
 }
 
-// Optimistic sends still to show: a send the server accepted keeps its bubble
-// until the stored row with that id arrives, so the message never shows twice
-// and never blinks out between the action returning and the list updating.
-export function unconfirmedPending<P extends { sentId?: string }>(pending: P[], messages: { id: string }[] | null): P[] {
+// A platform's clock may put a confirmed send slightly before the moment the
+// server accepted it.
+const SEND_CLOCK_SKEW_MS = 10_000;
+
+// Optimistic sends still to show. A send the server accepted keeps its bubble
+// until its stored row arrives, so the message never shows twice and never
+// blinks out between the action returning and the list updating. The row is
+// found by the id the send returned or, for a platform that renames the row
+// once delivered (Instagram swaps in its own id), by an own row with the same
+// text sent at or after that time that no other bubble already matched.
+export function unconfirmedPending<P extends { sent?: Pick<ChatMessage, "id" | "text" | "sentAt"> }>(
+  pending: P[],
+  messages: Pick<ChatMessage, "id" | "isMine" | "text" | "sentAt">[] | null,
+): P[] {
   if (!messages) return pending;
-  const shown = new Set(messages.map((m) => m.id));
-  return pending.filter((p) => !p.sentId || !shown.has(p.sentId));
+  const ids = new Set(messages.map((m) => m.id));
+  const claimed = new Set(pending.flatMap((p) => (p.sent && ids.has(p.sent.id) ? [p.sent.id] : [])));
+  return pending.filter(({ sent }) => {
+    if (!sent) return true;
+    if (ids.has(sent.id)) return false;
+    const renamed = messages.find(
+      (m) => m.isMine && !claimed.has(m.id) && m.text === sent.text && m.sentAt >= sent.sentAt - SEND_CLOCK_SKEW_MS,
+    );
+    if (!renamed) return true;
+    claimed.add(renamed.id);
+    return false;
+  });
 }

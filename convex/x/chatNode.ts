@@ -253,10 +253,11 @@ async function sendWithKeys(
     session.engine.decrypt(conversationId, stored?.rows ?? [], stored?.keyEvents ?? []);
     const before = new Set((stored?.rows ?? []).map((row) => `x:${row.id}`));
     const payload = session.engine.encrypt(conversationId, text);
+    const x = await session.connect();
     try {
-      await session.x.client.send(session.x.session(), conversationId as ContractId, { meId: session.meId, payload });
+      await x.client.send(x.session(), conversationId as ContractId, { meId: session.meId, payload });
     } finally {
-      await session.x.saving();
+      await x.saving();
     }
     await ctx.runAction(internal.x.chat.fetchFor, { accountId, conversationId }).catch(() => undefined);
     const messages = (await decryptOne(ctx, session, conversation)) ?? [];
@@ -286,7 +287,9 @@ type ServerSession = {
   meId: string;
   me: Person;
   engine: XChatEngine;
-  x: XChatConnection;
+  // A connection on the account's current session, loaded per call: other
+  // actions in the same run can refresh (and so rotate) the X tokens.
+  connect: () => Promise<XChatConnection>;
   signingKeys: Map<string, ChatSigningKey>;
 };
 
@@ -298,8 +301,7 @@ async function openSession(ctx: ActionCtx, accountId: Id<"connectedAccounts">, b
   const account: Doc<"connectedAccounts"> | null = await ctx.runQuery(internal.accounts.get, { accountId });
   if (!row?.encryptedKeys || !row.signingKeyVersion || !account?.me || account.session.kind !== "oauth") return null;
   const meId = account.me.id.slice(2);
-  const x = connectXChat(ctx, account, backfill);
-  const own = await signingKeysFor(ctx, x, meId, [meId], OWN_KEYS_MAX_AGE_MS);
+  const own = await signingKeysFor(ctx, () => connectXChat(ctx, account, backfill), meId, [meId], OWN_KEYS_MAX_AGE_MS);
   const newest = own
     .filter((k) => k.userId === meId)
     .map((k) => k.publicKeyVersion)
@@ -324,12 +326,17 @@ async function openSession(ctx: ActionCtx, accountId: Id<"connectedAccounts">, b
     throw new Error("The server never unlocks with a passcode");
   });
   engine.adopt(chat as unknown as XdkChat, { meId, signingKeyVersion: row.signingKeyVersion, signingKeys: own });
-  return { accountId, meId, me: account.me as Person, engine, x, signingKeys: new Map(own.map((k) => [`${k.userId}:${k.publicKeyVersion}`, k])) };
+  const connect = async () => {
+    const current: Doc<"connectedAccounts"> | null = await ctx.runQuery(internal.accounts.get, { accountId });
+    if (!current?.me || current.me.id !== account.me!.id || current.session.kind !== "oauth") throw new ConnectorFailure({ kind: "session_expired" }, "Connect X first");
+    return connectXChat(ctx, current, backfill);
+  };
+  return { accountId, meId, me: account.me as Person, engine, connect, signingKeys: new Map(own.map((k) => [`${k.userId}:${k.publicKeyVersion}`, k])) };
 }
 
 async function useSigningKeys(ctx: ActionCtx, session: ServerSession, conversation: ConversationInput) {
   const ids = conversation.participants.map((p) => p.id.slice(2));
-  const keys = await signingKeysFor(ctx, session.x, session.meId, ids, PUBLIC_KEYS_MAX_AGE_MS);
+  const keys = await signingKeysFor(ctx, session.connect, session.meId, ids, PUBLIC_KEYS_MAX_AGE_MS);
   for (const k of keys) session.signingKeys.set(`${k.userId}:${k.publicKeyVersion}`, k);
   session.engine.setSigningKeys([...session.signingKeys.values()]);
 }
@@ -364,12 +371,19 @@ async function decryptOne(ctx: ActionCtx, session: ServerSession, conversation: 
 
 // Signing keys for these X users, from the cache or, for misses, from X
 // (GET /2/users/{id}/public_keys, budgeted as chat event reads).
-async function signingKeysFor(ctx: ActionCtx, x: XChatConnection, meId: string, xUserIds: string[], maxAgeMs: number): Promise<ChatSigningKey[]> {
+async function signingKeysFor(
+  ctx: ActionCtx,
+  connect: () => XChatConnection | Promise<XChatConnection>,
+  meId: string,
+  xUserIds: string[],
+  maxAgeMs: number,
+): Promise<ChatSigningKey[]> {
   const cached = await ctx.runQuery(internal.x.chatKeys.cachedPublicKeys, { xUserIds, maxAgeMs });
   const have = new Set(cached.map((c) => c.xUserId));
   const missing = xUserIds.filter((id) => !have.has(id));
   const keys = cached.flatMap((c) => c.keys);
   if (!missing.length) return keys;
+  const x = await connect();
   try {
     const context = await x.client.keyContext(x.session(), { meId, participantIds: missing.filter((id) => id !== meId) });
     await cacheSigningKeys(ctx, context.signingKeys, [meId, ...missing]);

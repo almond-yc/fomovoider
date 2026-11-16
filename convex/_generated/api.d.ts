@@ -43,6 +43,7 @@ import type * as media from "../media.js";
 import type * as messages from "../messages.js";
 import type * as postStates from "../postStates.js";
 import type * as retention from "../retention.js";
+import type * as syncStatus from "../syncStatus.js";
 import type * as users from "../users.js";
 import type * as x_auth from "../x/auth.js";
 import type * as x_chat from "../x/chat.js";
@@ -97,6 +98,7 @@ declare const fullApi: ApiFromModules<{
   messages: typeof messages;
   postStates: typeof postStates;
   retention: typeof retention;
+  syncStatus: typeof syncStatus;
   users: typeof users;
   "x/auth": typeof x_auth;
   "x/chat": typeof x_chat;

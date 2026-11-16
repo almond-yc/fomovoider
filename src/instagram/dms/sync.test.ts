@@ -117,4 +117,30 @@ describe("instagram dm delivery", () => {
     capture.handle(delta(19895) as unknown as HookMessage);
     expect(stale).toBe(1);
   });
+
+  test("a challenge page after Send still pauses the device", async () => {
+    const h = harness({ data: { xig_direct_text_send_with_slide_messaging_response: { message_id: "mid.$1" } } });
+    const tripped: unknown[] = [];
+    h.deps.api = { ...h.deps.api, tripwire: async (a) => void tripped.push(a) };
+    const original = h.page.evaluate;
+    h.page.evaluate = async <T,>(js: string) => {
+      const out = await original<T>(js);
+      if (js === CLICK_SEND_JS) h.emit({ type: "ig:location", href: "https://www.instagram.com/challenge/", title: "" });
+      return out;
+    };
+    await deliver({ outboxId: "o1", kind: "send", threadKey: "123", text: "hi" }, h.deps);
+    expect(tripped).toHaveLength(1);
+  });
+
+  test("inbox snippet and detail copies of one message keep the detail's media", async () => {
+    const submitted: DmSubmit[] = [];
+    const capture = createDmCapture({ api: api(submitted), onStale: () => undefined, setTimer: () => undefined });
+    const detail = await import("./__fixtures__/dm-thread-detail.json");
+    capture.handle({ type: "ig:response", operation: "PolarisDirectInboxMobileQuery", status: 200, body: JSON.stringify(inbox) });
+    capture.handle({ type: "ig:response", operation: "IGDThreadDetailQuery", status: 200, body: JSON.stringify(detail.default) });
+    await capture.flush();
+    const copies = submitted[0].messages.filter((m) => m.id === "instagram:mid.$10000004102042");
+    expect(copies.length).toBe(2);
+    expect(Math.max(...copies.map((m) => m.media.length))).toBeGreaterThan(0);
+  });
 });

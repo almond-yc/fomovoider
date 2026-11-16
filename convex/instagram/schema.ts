@@ -154,6 +154,9 @@ export const instagramTables = {
     accountId: v.id("connectedAccounts"),
     conversationId: v.string(),
     kind: v.union(v.literal("send"), v.literal("markRead")),
+    // The Instagram identity (account.me.id) that queued it; a claim under
+    // another identity fails.
+    meId: v.string(),
     text: v.optional(v.string()),
     // The pending messages row (instagram:local:<outbox id>) a send shows.
     messageId: v.optional(v.string()),

@@ -25,4 +25,7 @@ export const WEBVIEW_STALE_CLAIM_MS = 6 * 60_000;
 // DM_CLAIM_TIMEOUT_MS is failed; a send is never retried.
 export const DM_SYNC_MIN_GAP_MS = { open: 2 * 60_000, realtime: 2 * 60_000, background: 3 * 3_600_000 };
 export const DM_CLAIM_TIMEOUT_MS = 3 * 60_000;
+// A send or seen receipt the phone hasn't claimed in this long (the app was
+// closed or Instagram paused) fails instead of going out late.
+export const DM_QUEUE_TTL_MS = 10 * 60_000;
 export const DM_MAX_TEXT_LENGTH = 1_000;

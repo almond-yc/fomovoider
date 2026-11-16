@@ -46,6 +46,7 @@ export const message = internalMutation({
       accountId,
       conversationId,
       kind: "send",
+      meId: account.me.id,
       text: body,
       state: "pending",
       createdAt: now,
@@ -78,7 +79,7 @@ export const markRead = internalMutation({
   returns: v.null(),
   handler: async (ctx, { accountId, conversationId }) => {
     const account = await ctx.db.get(accountId);
-    if (!account || account.platform !== "instagram" || account.status !== "active") return null;
+    if (!account || account.platform !== "instagram" || account.status !== "active" || !account.me) return null;
     const userId = account.userId;
     if (!(await threadRow(ctx, userId, conversationId))) return null;
     const queued = await ctx.db
@@ -93,6 +94,7 @@ export const markRead = internalMutation({
       accountId,
       conversationId,
       kind: "markRead",
+      meId: account.me.id,
       state: "pending",
       createdAt: Date.now(),
     });

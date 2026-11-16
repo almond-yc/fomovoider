@@ -180,4 +180,34 @@ describe("instagram dms", () => {
     expect((await messages(t, capture.threads[0].id)).find((m) => m.id === sent.id)?.delivery?.status).toBe("failed");
     await expect(t.mutation(internal.instagram.send.message, { accountId, conversationId: capture.threads[0].id, text: "hi" })).rejects.toThrow();
   });
+
+  test("a queued send fails instead of going out under another identity, late, or after a same-text replay", async () => {
+    vi.useFakeTimers();
+    const { t, as, accountId } = await connected();
+    const capture = await submitInbox(as);
+    const conversationId = capture.threads[0].id;
+    const viewer = capture.viewerIds[0];
+
+    // A replay of an earlier "ok" doesn't touch the pending one.
+    const pending = await t.mutation(internal.instagram.send.message, { accountId, conversationId, text: "ok" });
+    await as.mutation(api.instagram.dms.submit, {
+      viewerIds: [], threads: [], senders: [], receipts: [],
+      messages: [{ id: "instagram:mid.$old", conversationId, senderFbid: viewer, sentAt: new Date(pending.sentAt - 60_000).toISOString(), text: "ok", media: [] }],
+    });
+    expect((await messages(t, conversationId)).some((m) => m.id === pending.id)).toBe(true);
+
+    // Reconnected as someone else: the claim fails it.
+    await t.run((ctx) => ctx.db.patch(accountId, { me: { ...me, id: "instagram:other", handle: "other" } }));
+    let [item] = await as.query(api.instagram.dms.outbox, {});
+    expect(await as.mutation(api.instagram.dms.claim, { outboxId: item.outboxId })).toBeNull();
+    expect((await messages(t, conversationId)).find((m) => m.id === pending.id)?.delivery?.status).toBe("failed");
+
+    // Queued while the app was closed for more than 10 minutes: fails.
+    const late = await t.mutation(internal.instagram.send.message, { accountId, conversationId, text: "later" });
+    [item] = await as.query(api.instagram.dms.outbox, {});
+    await t.run((ctx) => ctx.db.patch(item.outboxId, { createdAt: Date.now() - 10 * 60_000 - 1 }));
+    expect(await as.mutation(api.instagram.dms.claim, { outboxId: item.outboxId })).toBeNull();
+    expect((await messages(t, conversationId)).find((m) => m.id === late.id)?.delivery?.status).toBe("failed");
+    vi.useRealTimers();
+  });
 });

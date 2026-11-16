@@ -6,7 +6,7 @@ import { requireUserId } from "../lib/auth";
 import { vMedia, vPerson, type MessageInput } from "../lib/validators";
 import { ownedAccount } from "./agent";
 import { killSwitch } from "./common";
-import { DM_CLAIM_TIMEOUT_MS, DM_SYNC_MIN_GAP_MS, TRIPWIRE_PAUSE_MS } from "./limits";
+import { DM_CLAIM_TIMEOUT_MS, DM_QUEUE_TTL_MS, DM_SYNC_MIN_GAP_MS, TRIPWIRE_PAUSE_MS } from "./limits";
 import { vTripwire } from "./schema";
 
 // Public functions for the DM plug-in of the app's hidden instagram.com web
@@ -173,8 +173,15 @@ export const submit = mutation({
     // own replaces the pending row its send showed.
     const messages: (MessageInput & { live?: boolean })[] = [];
     const isNew = new Map<string, boolean>();
-    for (const { senderFbid, live, ...m } of args.messages) {
-      if (!threads.has(m.conversationId) || isNew.has(m.id)) continue;
+    const richer = new Map<string, (typeof args.messages)[number]>();
+    for (const m of args.messages) {
+      const seen = richer.get(m.id);
+      if (!seen || m.media.length > seen.media.length || (m.media.length === seen.media.length && m.text.length > seen.text.length)) {
+        richer.set(m.id, { ...m, live: m.live || seen?.live });
+      }
+    }
+    for (const { senderFbid, live, ...m } of richer.values()) {
+      if (!threads.has(m.conversationId)) continue;
       const isMine = viewer.has(senderFbid);
       if (isMine) await replaceLocalCopy(ctx, userId, m.conversationId, m.text, Date.parse(m.sentAt));
       isNew.set(m.id, !(await messageRow(ctx, userId, m.id)));
@@ -241,8 +248,9 @@ export const submit = mutation({
   },
 });
 
-// A send's pending row for this text, written up to 5 minutes around sentAt;
-// the captured copy of the message replaces it.
+// A send Instagram confirmed without a message id, for this text and within
+// 5 minutes of sentAt: the captured copy of the message replaces it. Pending
+// rows are never touched; complete reconciles them by id.
 async function replaceLocalCopy(ctx: MutationCtx, userId: Id<"users">, conversationId: string, text: string, sentAt: number) {
   const window = 5 * 60_000;
   const rows = await ctx.db
@@ -251,7 +259,7 @@ async function replaceLocalCopy(ctx: MutationCtx, userId: Id<"users">, conversat
       q.eq("userId", userId).eq("conversationId", conversationId).gte("sentAt", sentAt - window).lte("sentAt", sentAt + window),
     )
     .collect();
-  const local = rows.find((r) => r.id.startsWith("instagram:local:") && r.isMine && r.text.trim() === text.trim());
+  const local = rows.find((r) => r.id.startsWith("instagram:local:") && r.delivery?.status === "sent" && r.text.trim() === text.trim());
   if (local) await ctx.db.delete(local._id);
 }
 
@@ -285,8 +293,18 @@ export const claim = mutation({
     const userId = await requireUserId(ctx);
     const row = await ctx.db.get(outboxId);
     if (!row || row.userId !== userId || row.state !== "pending") return null;
-    const reason = await blocked(ctx, await webviewDevice(ctx, userId));
+    const device = await webviewDevice(ctx, userId);
+    const account = device?.accountId ? await ctx.db.get(device.accountId) : null;
     const thread = await threadRow(ctx, userId, row.conversationId);
+    const reason =
+      (await blocked(ctx, device)) ??
+      (account?._id !== row.accountId || account?.status !== "active" || account.me?.id !== row.meId
+        ? "Instagram was reconnected since this was queued."
+        : Date.now() - row.createdAt > DM_QUEUE_TTL_MS
+          ? "Instagram wasn't reachable in time; this wasn't sent."
+          : !thread
+            ? "This chat isn't in the Instagram inbox."
+            : null);
     if (reason || !thread) {
       await finishOutbox(ctx, row, { ok: false, error: reason ?? "This chat isn't in the Instagram inbox." });
       return null;

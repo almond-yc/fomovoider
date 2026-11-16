@@ -178,11 +178,9 @@ async function guarded<T>(deps: DmTaskDeps, fn: (check: () => void) => Promise<T
   };
   try {
     return await fn(check);
-  } catch (err) {
-    if (err instanceof Tripped) await deps.api.tripwire({ tripwire: err.tripwire });
-    throw err;
   } finally {
     unsubscribe();
+    if (tripwire) await deps.api.tripwire({ tripwire });
   }
 }
 

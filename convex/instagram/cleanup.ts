@@ -26,9 +26,10 @@ const vCounts = v.object({
 });
 type Counts = typeof vCounts.type;
 
-// Counts, and unless dryRun deletes, one legacy post with its facts, its
-// upload claims and its stored files. A file claimed by a non-legacy post (an
-// instagram_uploads row naming another post id) is kept.
+// Counts, and unless dryRun deletes, one legacy post with its facts and its
+// stored files. A file claimed by a non-legacy post (an instagram_uploads row
+// naming another post id) is kept. Upload claims go in their own phase, since
+// a re-captured post leaves claims for files it no longer references.
 async function purge(ctx: MutationCtx, post: Doc<"posts">, counts: Counts, dryRun: boolean) {
   counts.posts++;
   const facts = await ctx.db
@@ -45,11 +46,7 @@ async function purge(ctx: MutationCtx, post: Doc<"posts">, counts: Counts, dryRu
     if (claims.some((c) => !LEGACY_ID.test(c.postId))) {
       kept.add(storageId);
       counts.keptFiles++;
-      continue;
-    }
-    counts.uploads += claims.length;
-    if (await ctx.db.system.get(storageId)) counts.files++;
-    if (!dryRun) for (const claim of claims) await ctx.db.delete(claim._id);
+    } else if (await ctx.db.system.get(storageId)) counts.files++;
   }
   if (dryRun) return;
   for (const row of facts) await ctx.db.delete(row._id);
@@ -62,32 +59,47 @@ async function purge(ctx: MutationCtx, post: Doc<"posts">, counts: Counts, dryRu
 
 // Removes the posts the legacy iPhone driver wrote, so only web-view posts
 // remain. dryRun counts everything in one pass and changes nothing. A real
-// run deletes BATCH posts per mutation and schedules itself for the rest,
-// logging each batch's counts; it returns the first batch's.
+// run deletes BATCH posts per mutation, then BATCH upload claims per mutation,
+// scheduling itself for the rest and logging each batch's counts; it returns
+// the first batch's.
 export const purgeLegacyDriverPosts = internalMutation({
-  args: { dryRun: v.boolean(), cursor: v.optional(v.union(v.string(), v.null())) },
+  args: {
+    dryRun: v.boolean(),
+    phase: v.optional(v.union(v.literal("posts"), v.literal("uploads"))),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  },
   returns: v.object({ ...vCounts.fields, done: v.boolean() }),
-  handler: async (ctx, { dryRun, cursor = null }) => {
+  handler: async (ctx, { dryRun, phase = "posts", cursor = null }) => {
     const counts: Counts = { scanned: 0, posts: 0, postFacts: 0, uploads: 0, files: 0, keptFiles: 0 };
     if (dryRun) {
       for await (const post of ctx.db.query("posts")) {
         counts.scanned++;
         if (isLegacyDriverPost(post)) await purge(ctx, post, counts, true);
       }
+      for await (const claim of ctx.db.query("instagram_uploads")) {
+        if (LEGACY_ID.test(claim.postId)) counts.uploads++;
+      }
       return { ...counts, done: true };
     }
-    const page = await ctx.db.query("posts").paginate({ numItems: BATCH, cursor });
-    for (const post of page.page) {
-      counts.scanned++;
-      if (isLegacyDriverPost(post)) await purge(ctx, post, counts, false);
+    let next: { phase: "posts" | "uploads"; cursor: string | null } | null;
+    if (phase === "posts") {
+      const page = await ctx.db.query("posts").paginate({ numItems: BATCH, cursor });
+      for (const post of page.page) {
+        counts.scanned++;
+        if (isLegacyDriverPost(post)) await purge(ctx, post, counts, false);
+      }
+      next = page.isDone ? { phase: "uploads", cursor: null } : { phase, cursor: page.continueCursor };
+    } else {
+      const page = await ctx.db.query("instagram_uploads").paginate({ numItems: BATCH, cursor });
+      for (const claim of page.page) {
+        if (!LEGACY_ID.test(claim.postId)) continue;
+        counts.uploads++;
+        await ctx.db.delete(claim._id);
+      }
+      next = page.isDone ? null : { phase, cursor: page.continueCursor };
     }
-    console.log("purgeLegacyDriverPosts batch", JSON.stringify(counts));
-    if (!page.isDone) {
-      await ctx.scheduler.runAfter(0, internal.instagram.cleanup.purgeLegacyDriverPosts, {
-        dryRun: false,
-        cursor: page.continueCursor,
-      });
-    }
-    return { ...counts, done: page.isDone };
+    console.log(`purgeLegacyDriverPosts ${phase} batch`, JSON.stringify(counts));
+    if (next) await ctx.scheduler.runAfter(0, internal.instagram.cleanup.purgeLegacyDriverPosts, { dryRun: false, ...next });
+    return { ...counts, done: next === null };
   },
 });

@@ -54,6 +54,9 @@ test("purgeLegacyDriverPosts removes only the iPhone driver's posts, with their 
       uploads: [captured],
     });
     await ctx.db.insert("postStates", { userId, postId: legacy, seenAt: 1 });
+    const replaced = await file();
+    await ctx.db.insert("instagram_uploads", { storageId: replaced, deviceId, postId: "instagram:d15f996764b0cfc33fcb1fea" });
+    await ctx.storage.delete(replaced);
     for (let i = 0; i < 120; i++) {
       await insert(`instagram:${i.toString(16).padStart(24, "a")}`, "instagram", { facts: true });
     }
@@ -65,7 +68,7 @@ test("purgeLegacyDriverPosts removes only the iPhone driver's posts, with their 
     return { webviewFile, shared };
   });
 
-  const counts = { scanned: 124, posts: 121, postFacts: 121, uploads: 1, files: 2, keptFiles: 1, done: true };
+  const counts = { scanned: 124, posts: 121, postFacts: 121, uploads: 2, files: 2, keptFiles: 1, done: true };
   expect(await t.mutation(internal.instagram.cleanup.purgeLegacyDriverPosts, { dryRun: true })).toEqual(counts);
   expect(await t.run(async (ctx) => (await ctx.db.query("posts").collect()).length)).toBe(124);
 

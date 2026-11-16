@@ -37,6 +37,8 @@ export interface Post {
   replyTo?: { id: Id; author?: Person };
   format?: "post" | "story";   // unset = "post"
   expiresAt?: ISODate;         // stories: when it disappears; the feed hides expired items
+  sponsored?: boolean;         // the platform marked it as an ad (contract v7.3)
+  suggested?: boolean;         // the platform suggested it from an account the user doesn't follow (v7.3)
   // What the connector pulled out of the post, for any platform.
   extracted?: {
     place?: { name: string; lat?: number; lng?: number };

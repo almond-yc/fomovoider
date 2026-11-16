@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import schema from "../schema";
 import { sha256Hex } from "./common";
@@ -131,8 +131,13 @@ describe("instagram device runs", () => {
 
   test("a device can only pass files uploaded during its run, one post per file", async () => {
     const { t, userId } = await paired();
+    vi.useFakeTimers({ toFake: ["Date"] });
     const older = await t.run((ctx) => ctx.storage.store(new Blob(["someone else's"])));
+    // The rule is "uploaded after the run was claimed"; move the clock on so
+    // the earlier upload and the claim never share a millisecond.
+    vi.setSystemTime(Date.now() + 1_000);
     const run = await claim(t, userId);
+    vi.useRealTimers();
     await t.mutation(api.instagram.agent.reportIdentity, { token: TOKEN, runId: run.runId, me });
     const submit = (id: string, storageId: any) =>
       t.mutation(api.instagram.agent.submitItems, { token: TOKEN, runId: run.runId, items: [item(id, storageId)] });
@@ -143,6 +148,16 @@ describe("instagram device runs", () => {
     await submit("instagram:a", fresh);
     await expect(submit("instagram:b", fresh)).rejects.toThrow("belongs to another post");
     expect(await t.run((ctx) => ctx.storage.getUrl(older))).not.toBeNull();
+  });
+
+  test("the kill switch pauses the host agent and skips its due run", async () => {
+    const { t, userId } = await paired();
+    await t.mutation(internal.instagram.devices.runNowForUser, { userId });
+    await t.mutation(internal.instagram.killSwitch.set, { enabled: true });
+    const claimed = await t.mutation(api.instagram.agent.claimRun, { token: TOKEN });
+    expect(claimed).toMatchObject({ kind: "paused", reason: "kill switch" });
+    const runs = await t.run((ctx) => ctx.db.query("instagram_runs").collect());
+    expect(runs.map((r) => r.state)).toEqual(["skipped"]);
   });
 
   test("a tripwire aborts the run and pauses the device for 72 hours", async () => {

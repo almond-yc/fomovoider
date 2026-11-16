@@ -16,7 +16,7 @@ export default function TabsLayout() {
       indicatorColor={theme.muted}
       labelVisibilityMode="unlabeled">
       <NativeTabs.Trigger name="index" accessibilityLabel="Feed">
-        <NativeTabs.Trigger.Icon sf={{ default: 'newspaper', selected: 'newspaper.fill' }} md="newspaper" />
+        <NativeTabs.Trigger.Icon sf={{ default: 'house', selected: 'house.fill' }} md="home" />
         <NativeTabs.Trigger.Label hidden />
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="chats" accessibilityLabel="Chat">

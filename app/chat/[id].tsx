@@ -19,7 +19,7 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { MessageCircleOff } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, KeyboardAvoidingView, Platform, View } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Platform, View, type HostInstance } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const PAGE = 30;
@@ -41,6 +41,7 @@ export default function ConversationScreen() {
   const markRead = useAction(api.messages.markRead);
   const [pending, setPending] = useState<PendingMessage[]>([]);
   const headerHeight = useHeaderHeight();
+  const [bodyTop, setBodyTop] = useState<number | null>(null);
 
   const sourceUnlocked = sourceThread?.status === 'unlocked';
   const unavailable = sourceUnlocked ? undefined : conversation?.unavailable;
@@ -123,40 +124,50 @@ export default function ConversationScreen() {
   return (
     <Screen>
       <Header conversation={conversation as ChatConversation | undefined} title={title} />
-      <KeyboardAvoidingView
+      <View
         className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={headerHeight}>
-        {sourceThread?.error ? (
-          <Text className="px-5 py-2 text-center text-sm text-destructive">{sourceThread.error}</Text>
-        ) : null}
-        {!conversation || (messages === null && !unavailable) ? (
-          <MessageSkeletons />
-        ) : (
-          <FlatList
-            inverted
-            data={rows}
-            keyExtractor={(r) => r.key}
-            contentContainerClassName="gap-2 py-3"
-            onEndReached={() => !sourceThread && stored.status === 'CanLoadMore' && stored.loadMore(PAGE)}
-            onEndReachedThreshold={0.5}
-            renderItem={({ item }) =>
-              item.kind === 'day' ? (
-                <DaySeparator label={item.label} />
-              ) : item.kind === 'pending' ? (
-                <PendingBubble
-                  pending={item.pending}
-                  onRetry={() => void deliver(item.key, item.pending.text)}
-                  onDiscard={() => setPending((all) => all.filter((p) => p.key !== item.key))}
-                />
-              ) : (
-                <MessageBubble message={item.message} showSender={group} />
-              )
-            }
-          />
-        )}
-        {conversation ? <Composer onSend={send} blocked={blocked} /> : null}
-      </KeyboardAvoidingView>
+        onLayout={(e) => (e.currentTarget as HostInstance).measureInWindow((_x, y) => setBodyTop(y))}>
+        <KeyboardAvoidingView
+          className="flex-1"
+          style={{ paddingTop: bodyTop === null ? 0 : Math.max(0, headerHeight - bodyTop) }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={bodyTop ?? headerHeight}>
+          <View className="flex-1">
+            <FlatList
+              inverted
+              keyboardDismissMode="interactive"
+              keyboardShouldPersistTaps="handled"
+              data={rows}
+              keyExtractor={(r) => r.key}
+              contentContainerClassName="gap-2 py-3"
+              onEndReached={() => !sourceThread && stored.status === 'CanLoadMore' && stored.loadMore(PAGE)}
+              onEndReachedThreshold={0.5}
+              renderItem={({ item }) =>
+                item.kind === 'day' ? (
+                  <DaySeparator label={item.label} />
+                ) : item.kind === 'pending' ? (
+                  <PendingBubble
+                    pending={item.pending}
+                    onRetry={() => void deliver(item.key, item.pending.text)}
+                    onDiscard={() => setPending((all) => all.filter((p) => p.key !== item.key))}
+                  />
+                ) : (
+                  <MessageBubble message={item.message} showSender={group} />
+                )
+              }
+            />
+            {!conversation || (messages === null && !unavailable) ? (
+              <View className="absolute inset-0 bg-background">
+                <MessageSkeletons />
+              </View>
+            ) : null}
+          </View>
+          {sourceThread?.error ? (
+            <Text className="px-5 py-2 text-center text-sm text-destructive">{sourceThread.error}</Text>
+          ) : null}
+          {conversation ? <Composer onSend={send} blocked={blocked} /> : null}
+        </KeyboardAvoidingView>
+      </View>
     </Screen>
   );
 }
@@ -179,6 +190,7 @@ function Header({ conversation, title }: { conversation?: ChatConversation; titl
         title: title ?? '',
         headerBackTitle: 'Chats',
         headerShadowVisible: false,
+        scrollEdgeEffects: { top: 'hidden', bottom: 'hidden', left: 'hidden', right: 'hidden' },
         headerTitleStyle: { fontFamily: 'Inter_600SemiBold' },
         headerTitle:
           conversation && title

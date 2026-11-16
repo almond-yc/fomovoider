@@ -119,6 +119,7 @@ function RootNavigator() {
           <Stack.Screen name="edit-slop" options={{ presentation: 'modal' }} />
           <Stack.Screen name="chat/[id]" />
           <Stack.Screen name="x-chat" />
+          <Stack.Screen name="full-feed" />
         </Stack.Protected>
         <Stack.Protected
           guard={screen === 'app' || screen === 'xChatPasscode'}

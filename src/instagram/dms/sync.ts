@@ -79,6 +79,9 @@ export interface DmCaptureDeps {
   // thread shows the page is logged in as this user, and dropped when it
   // shows anyone else.
   expectedHandle(): string | undefined;
+  // Called once after the first batch Convex accepted for this viewer, so
+  // work waiting on verification (the outbox) can start.
+  onReady?(): void;
   // Something changed that only an inbox reload shows: a delta the parsers
   // don't read, or a gap in the sequence ids.
   onStale(): void;
@@ -95,6 +98,7 @@ export function createDmCapture(deps: DmCaptureDeps) {
   let lastSeq = 0;
   // The verified page viewer and the handle it was verified for.
   let viewer: (DmViewer & { for: string }) | undefined;
+  let ready = false;
   const waiters = new Set<{ operation: string; resolve: (docs: Json[]) => void }>();
 
   // Forgets everything captured: another Fomovoider user or Instagram
@@ -102,6 +106,7 @@ export function createDmCapture(deps: DmCaptureDeps) {
   const reset = () => {
     pending = emptyPending();
     viewer = undefined;
+    ready = false;
     lastSeq = 0;
   };
 
@@ -147,6 +152,10 @@ export function createDmCapture(deps: DmCaptureDeps) {
     pending = { ...emptyPending(), viewerIds: [...batch.viewerIds] };
     if (batch.threads.length || batch.messages.length || batch.receipts.length) {
       await deps.api.submit({ ...batch, viewer: { handle: viewer.handle, fbid: viewer.fbid } });
+      if (!ready) {
+        ready = true;
+        deps.onReady?.();
+      }
     }
   };
 
@@ -193,8 +202,9 @@ export function createDmCapture(deps: DmCaptureDeps) {
       }, timeoutMs);
     });
 
-  // True once the page showed it is logged in as the expected account.
-  const verified = () => Boolean(viewer && viewer.for === deps.expectedHandle());
+  // True once the page showed it is logged in as the expected account and
+  // Convex accepted a batch from it.
+  const verified = () => Boolean(ready && viewer && viewer.for === deps.expectedHandle());
 
   return { handle, next, flush, reset, verified };
 }

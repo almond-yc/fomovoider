@@ -197,6 +197,7 @@ describe("x chat passes", () => {
 
   test("the conversation list only moves chatSince once a pass reaches it", async () => {
     vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "2");
+    vi.stubEnv("X_DAILY_CHAT_REALTIME_READ_BUDGET", "0");
     stubX({
       ...defaultRoutes,
       "GET /2/chat/conversations": (url: URL) =>
@@ -210,6 +211,7 @@ describe("x chat passes", () => {
     expect(first?.chatSince).toBeUndefined();
 
     vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "10");
+    vi.stubEnv("X_DAILY_CHAT_REALTIME_READ_BUDGET", "0");
     await t.action(internal.x.chat.syncAccount, { accountId });
     const done = await state();
     expect(done?.chatCursor).toBeUndefined();

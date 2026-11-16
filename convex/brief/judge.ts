@@ -34,7 +34,7 @@ export type JudgeInput = {
 
 export type JudgeResult = {
   verdict: Verdict;
-  usage: { inputTokens: number; outputTokens: number; modelCalls: number };
+  usage: { inputTokens: number; outputTokens: number; modelCalls: number; inspectVideoCalls: number };
   framesSent: number;
 };
 
@@ -105,12 +105,13 @@ export async function judge(input: JudgeInput, model: BaseChatModel): Promise<Ju
       { messages: [new HumanMessage({ contentBlocks: blocks })] },
       { recursionLimit: RECURSION_LIMIT },
     );
-    const usage = { inputTokens: 0, outputTokens: 0, modelCalls: 0 };
+    const usage = { inputTokens: 0, outputTokens: 0, modelCalls: 0, inspectVideoCalls: 0 };
     for (const message of result.messages) {
       // toolStrategy appends its own AIMessage after the verdict; only the
       // model's turns carry tool calls.
       if (!AIMessage.isInstance(message) || !message.tool_calls?.length) continue;
       usage.modelCalls += 1;
+      usage.inspectVideoCalls += message.tool_calls.filter((c) => c.name === "inspect_video").length;
       usage.inputTokens += message.usage_metadata?.input_tokens ?? 0;
       usage.outputTokens += message.usage_metadata?.output_tokens ?? 0;
     }
@@ -132,7 +133,8 @@ export const judgePost = internalAction({
   handler: async (ctx, { runId, postId }) => {
     const input = await ctx.runQuery(internal.brief.workflow.judgeInput, { postId });
     if (input === null) return null;
-    const { verdict } = await judge(input, createJudgeModel());
+    const { verdict, usage, framesSent } = await judge(input, createJudgeModel());
+    console.log("brief judge", JSON.stringify({ postId, include: verdict.include, framesSent, ...usage }));
     await ctx.runMutation(internal.brief.workflow.saveVerdict, { runId, postId, verdict, model: JUDGE_MODEL });
     return null;
   },

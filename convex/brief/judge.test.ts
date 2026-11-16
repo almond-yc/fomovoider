@@ -139,6 +139,7 @@ describe("judge", () => {
     expect(result.verdict).toEqual({ ...verdict, media: { ...verdict.media, keepIndices: [0, 2] } });
     expect(result.framesSent).toBe(MAX_IMAGES_PER_POST);
     expect(result.usage.modelCalls).toBe(2);
+    expect(result.usage.inspectVideoCalls).toBe(1);
   }, 60_000);
 
   test("includes quoted-post media and an empty media list when the agent drops it", async () => {

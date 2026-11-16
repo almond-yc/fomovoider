@@ -322,7 +322,7 @@ describe("X Chat passcode", () => {
     await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
     await t.run(async (ctx) => {
       const account = await ctx.db.get(accountId);
-      await ctx.db.patch(accountId, { session: { ...account!.session, expiresAt: "2000-01-01T00:00:00.000Z" } as typeof account.session });
+      await ctx.db.patch(accountId, { session: { ...account!.session, expiresAt: "2000-01-01T00:00:00.000Z" } as NonNullable<typeof account>["session"] });
     });
     await t.action(internal.x.chatNode.decryptConversations, { accountId, conversations: [] });
     const [conversation] = await t.run((ctx) => ctx.db.query("conversations").collect());

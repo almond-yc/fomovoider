@@ -96,9 +96,6 @@ function RootNavigator() {
         <Stack.Protected guard={signedIn && onboarded && !connected}>
           <Stack.Screen name="connect" />
         </Stack.Protected>
-        <Stack.Protected guard={signedIn && onboarded && connected}>
-          <Stack.Screen name="x-chat-passcode" />
-        </Stack.Protected>
         <Stack.Protected guard={signedIn && onboarded && connected && !askXChatPasscode}>
           <Stack.Screen
             name="(tabs)"
@@ -124,6 +121,9 @@ function RootNavigator() {
           <Stack.Screen name="edit-slop" options={{ presentation: 'modal' }} />
           <Stack.Screen name="chat/[id]" />
           <Stack.Screen name="x-chat" />
+        </Stack.Protected>
+        <Stack.Protected guard={signedIn && onboarded && connected}>
+          <Stack.Screen name="x-chat-passcode" />
         </Stack.Protected>
         <Stack.Screen name="feed-preview" />
       </Stack>

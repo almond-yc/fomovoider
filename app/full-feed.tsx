@@ -1,6 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
 import { ContentItem, ContentItemSkeleton, DashedDivider, type FeedPagePost, useSeenBatches } from '@/components/feed';
 import { platformName } from '@/components/platform-badge';
+import { SyncingMore, useSyncStatus } from '@/components/syncing-more';
 import { Text } from '@/components/ui/text';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -20,6 +21,7 @@ export default function FeedScreen() {
   const convex = useConvex();
   const { isAuthenticated } = useConvexAuth();
   const accounts = useQuery(api.accounts.list, isAuthenticated ? {} : 'skip');
+  const syncing = useSyncStatus()?.feed;
   const [session, setSession] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -48,7 +50,13 @@ export default function FeedScreen() {
   return (
     <FeedSession
       key={session}
-      notices={<AccountNotices accounts={accounts} />}
+      notices={
+        <>
+          <SyncingMore platforms={syncing} />
+          <AccountNotices accounts={accounts} />
+        </>
+      }
+      syncing={syncing}
       refreshing={refreshing}
       onRefresh={refresh}
     />
@@ -59,17 +67,18 @@ export default function FeedScreen() {
 // shows posts newer than where the last one was caught up.
 function FeedSession({
   notices,
+  syncing,
   refreshing,
   onRefresh,
 }: {
   notices: ReactElement;
+  syncing: string[] | undefined;
   refreshing: boolean;
   onRefresh: () => void;
 }) {
   const { results, status, loadMore } = usePaginatedQuery(api.feed.page, {}, { initialNumItems: PAGE_SIZE });
   const connectorsCaughtUp = useQuery(api.feed.connectorsCaughtUp);
   const markCaughtUp = useMutation(api.feed.markCaughtUp);
-  const markOpened = useMutation(api.postStates.markOpened);
   const setHidden = useMutation(api.postStates.setHidden);
   const setSaved = useMutation(api.postStates.setSaved);
   const onViewableItemsChanged = useSeenBatches((item) => (item as FeedPagePost)._id);
@@ -154,7 +163,6 @@ function FeedSession({
           <ContentItem
             post={item}
             saved={saved.get(item._id) ?? item.savedAt !== undefined}
-            onOpen={() => void markOpened({ postId: item._id })}
           />
         </Pressable>
       )}
@@ -165,6 +173,8 @@ function FeedSession({
             <DashedDivider />
             <CaughtUp className="flex-none py-16" />
           </>
+        ) : status === 'Exhausted' && syncing?.length ? (
+          <SyncingMore platforms={syncing} className="justify-center py-10" />
         ) : status === 'Exhausted' ? (
           <Text variant="muted" className="px-5 py-10 text-center text-sm">
             Older posts are still syncing.

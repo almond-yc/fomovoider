@@ -1,5 +1,6 @@
 import { ConversationRow, ConversationRowSkeleton, useChatSources } from '@/components/chat';
 import { EmptyState } from '@/components/empty-state';
+import { SyncingMore, useSyncStatus } from '@/components/syncing-more';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { api } from '@/convex/_generated/api';
@@ -33,6 +34,7 @@ export default function ChatsScreen() {
   const conversations = useMemo(() => mergeConversations(rows, fromSources), [rows, fromSources]);
   const accounts = useQuery(api.accounts.list, isAuthenticated ? {} : 'skip');
   const now = useNow();
+  const syncing = useSyncStatus()?.chats;
 
   const needsReconnect = (accounts ?? []).filter((a) => a.status === 'expired').map((a) => platformName(a.platform));
 
@@ -50,6 +52,12 @@ export default function ChatsScreen() {
       </Text>
     </View>
   ) : undefined;
+  const header = (
+    <>
+      {banner}
+      <SyncingMore platforms={syncing} />
+    </>
+  );
 
   if (!rows) {
     return (
@@ -75,7 +83,7 @@ export default function ChatsScreen() {
         contentInsetAdjustmentBehavior="automatic"
         data={[]}
         renderItem={() => null}
-        ListHeaderComponent={banner}
+        ListHeaderComponent={header}
         ListEmptyComponent={
           <EmptyState
             icon={MessagesSquare}
@@ -94,7 +102,7 @@ export default function ChatsScreen() {
       contentInsetAdjustmentBehavior="automatic"
       data={conversations}
       keyExtractor={(c) => c.id}
-      ListHeaderComponent={banner}
+      ListHeaderComponent={header}
       contentContainerClassName="py-1"
       renderItem={({ item }) => (
         <ConversationRow

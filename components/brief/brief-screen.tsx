@@ -1,5 +1,6 @@
 import { ContentItem, ContentItemSkeleton, DashedDivider, useSeenBatches } from '@/components/feed';
 import { platformName } from '@/components/platform-badge';
+import { SyncingMore, useSyncStatus } from '@/components/syncing-more';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { api } from '@/convex/_generated/api';
@@ -52,12 +53,14 @@ export function BriefScreen() {
   // A day picked before midnight stays picked; otherwise follow today.
   const selected = picked !== null && picked < today ? picked : today;
   const brief = useQuery(api.brief.byDate, { date: selected });
+  const syncing = useSyncStatus()?.feed;
 
   if (dates === undefined) return <Loading />;
 
   return (
     <View className="flex-1 bg-background">
       <DateStrip today={today} selected={selected} available={available} onSelect={setPicked} />
+      {selected === today ? <SyncingMore platforms={syncing} className="border-b border-border" /> : null}
       <BriefBody key={selected} brief={brief} isToday={selected === today} />
     </View>
   );
@@ -81,7 +84,6 @@ function BriefBody({ brief, isToday }: { brief: Brief | null | undefined; isToda
 }
 
 function BriefList({ run, items }: Brief) {
-  const markOpened = useMutation(api.postStates.markOpened);
   const setHidden = useMutation(api.postStates.setHidden);
   const setSaved = useMutation(api.postStates.setSaved);
   const onViewableItemsChanged = useSeenBatches((item) => (item as BriefItem).post._id);
@@ -126,7 +128,6 @@ function BriefList({ run, items }: Brief) {
           <ContentItem
             post={item.post}
             saved={item.post.savedAt !== undefined}
-            onOpen={() => void markOpened({ postId: item.post._id })}
           />
         </Pressable>
       )}

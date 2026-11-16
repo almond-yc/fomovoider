@@ -1,4 +1,5 @@
 import { PlatformRow } from '@/components/platform-row';
+import { useSyncStatus } from '@/components/syncing-more';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 import { api } from '@/convex/_generated/api';
@@ -36,6 +37,7 @@ export function ConnectionRow({
   const [attempt, setAttempt] = useState<Attempt>({ state: 'idle' });
   const [note, setNote] = useState<string>();
   const [refreshing, setRefreshing] = useState(false);
+  const syncStatus = useSyncStatus();
 
   async function connect() {
     if (!connector.login) return;
@@ -118,7 +120,8 @@ export function ConnectionRow({
   const macInstagram = isInstagram && igDevice?.paired === true && igState !== undefined && !inAppInstagram;
   const syncMutation = macInstagram ? api.instagram.devices.runNow : connector.sync;
   const paused = igState ? pausedLine(igState) : undefined;
-  const status = describe(connector, account, attempt, variant, igConnected);
+  const syncingMore = [...(syncStatus?.feed ?? []), ...(syncStatus?.chats ?? [])].includes(connector.platform);
+  const status = describe(connector, account, attempt, variant, igConnected, syncingMore);
 
   let action;
   if (busy) {
@@ -159,6 +162,7 @@ export function ConnectionRow({
       subtitle={variant === 'settings' && account?.me ? `@${account.me.handle}` : connector.description}
       status={paused ?? note ?? status.text}
       statusTone={note || paused ? 'muted' : status.tone}
+      statusBusy={!note && !paused && status.busy}
       action={action}>
       {links.length ? (
         <View className="ml-[60px] mt-1 flex-row gap-4">
@@ -178,8 +182,9 @@ function describe(
   account: AccountView | undefined,
   attempt: Attempt,
   variant: 'connect' | 'settings',
-  igConnected: boolean
-): { text?: string; tone?: 'muted' | 'destructive' } {
+  igConnected: boolean,
+  syncingMore: boolean
+): { text?: string; tone?: 'muted' | 'destructive'; busy?: boolean } {
   if (attempt.state === 'connecting') return { text: 'Connecting…' };
   if (attempt.state === 'error') return { text: attempt.message, tone: 'destructive' };
   if (!account) {
@@ -189,7 +194,7 @@ function describe(
   switch (account.status) {
     case 'pending':
     case 'resetting':
-      return { text: igConnected ? 'Connected · Syncing…' : 'Syncing…' };
+      return { text: igConnected ? 'Connected · Syncing…' : 'Syncing…', busy: true };
     case 'expired':
       return { text: 'Session expired. Reconnect to keep syncing.', tone: 'destructive' };
     case 'error':
@@ -198,7 +203,8 @@ function describe(
         tone: 'destructive',
       };
     case 'active':
-      if (!account.lastSyncedAt) return { text: igConnected ? 'Connected · Syncing…' : 'Syncing…' };
+      if (!account.lastSyncedAt) return { text: igConnected ? 'Connected · Syncing…' : 'Syncing…', busy: true };
+      if (syncingMore) return { text: 'Syncing more…', busy: true };
       return { text: variant === 'settings' ? `Connected · Synced ${ago(account.lastSyncedAt)}` : 'Connected' };
   }
 }

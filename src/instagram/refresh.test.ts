@@ -86,7 +86,8 @@ describe("runRefresh", () => {
     const { api, submitted } = fakeApi();
     const result = await runRefresh("open", deps(page, api));
     expect(page.goto.mock.calls.map((c) => c[0])).toEqual([HOME_URL, FOLLOWING_URL]);
-    expect(result).toMatchObject({ outcome: "done", posts: 5, stories: 2 });
+    // A first refresh that read its window of pages is caught up.
+    expect(result).toMatchObject({ outcome: "done", posts: 5, stories: 2, caughtUp: true });
     // Home's own ranked feed is not read.
     expect(submitted.filter((i) => i.format === "post")).toHaveLength(5);
     expect(submitted.filter((i) => i.format === "story")).toHaveLength(2);
@@ -124,8 +125,9 @@ describe("runRefresh", () => {
   test("a known ad or suggestion is skipped without ending the feed", async () => {
     const ad = "instagram:" + feedEdges[3].node.ad.items[0].pk;
     const suggested = "instagram:" + feedEdges[4].node.explore_story.media.pk;
-    const { api, submitted } = fakeApi({ knownIds: [ad, suggested] });
+    const { api, submitted } = fakeApi({ knownIds: [ad, suggested], cursors: { following: { hasNextPage: true, newestId: "instagram:older" } } });
     const result = await runRefresh("open", deps(fakePage(), api));
+    // It never reached the stored post, so older new posts may remain.
     expect(result).toMatchObject({ caughtUp: false, posts: 3 });
     expect(submitted.map((i) => i.id)).not.toContain(ad);
   });

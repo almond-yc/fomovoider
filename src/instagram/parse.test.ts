@@ -40,6 +40,21 @@ describe("feed parsing", () => {
     expect(post).not.toHaveProperty("title");
   });
 
+  test("images are picked at phone quality, about 1080 px wide", () => {
+    const widths = parsed.posts.flatMap((p) => p.media.filter((m) => m.kind === "image").map((m) => m.width!));
+    expect(widths.length).toBeGreaterThan(0);
+    // The largest candidate within 1080 px, or the smallest when none fits.
+    for (const w of widths) expect(w).toBeLessThanOrEqual(1200);
+    expect(Math.max(...widths)).toBeGreaterThanOrEqual(720);
+  });
+
+  test("a feed video's duration comes from its DASH manifest", () => {
+    const doc = structuredClone(feedPage) as any;
+    doc.data.xdt_api__v1__feed__timeline__connection.edges[1].node.media.video_dash_manifest =
+      '<MPD mediaPresentationDuration="PT1M9.5S"></MPD>';
+    expect(extract([doc]).posts[1].media[0].durationSec).toBe(69.5);
+  });
+
   test("reels are videos with a phone-size poster to upload and a /reel/ permalink", () => {
     const reel = parsed.posts[1];
     expect(reel.permalink).toContain("/reel/");
@@ -92,8 +107,11 @@ describe("story parsing", () => {
     expect(story.text).toMatch(/^@user_\d+$/);
     expect(story.facts).toMatchObject({ sponsored: false, storyTrayPosition: 4, followsAuthor: true });
     expect(parsed.posts[1].facts.storyTrayPosition).toBeUndefined();
-    expect(story.media).toEqual([expect.objectContaining({ kind: "image", width: 1170 })]);
-    expect(story.media[0].upload.image).toBeDefined();
+    // The story's own media at phone quality, dated by taken_at.
+    expect(story.media).toEqual([expect.objectContaining({ kind: "image", width: 828 })]);
+    expect(story.media[0].url).toBe(firstReel.items[0].image_versions2.candidates[1].url);
+    expect(story.media[0].upload.image).toBe(story.media[0].url);
+    expect(story.createdAt).toBe(new Date(firstReel.items[0].taken_at * 1000).toISOString());
   });
 
   test("location, hashtag and link stickers become text and the place", () => {

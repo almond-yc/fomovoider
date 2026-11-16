@@ -243,8 +243,13 @@ export async function runRefresh(trigger: "open" | "background" | "manual", deps
     while (true) {
       const added = await flush(followingCursor);
       idle = added ? 0 : idle + 1;
-      if (caughtUp || posts >= budget.maxPosts || idle > MAX_IDLE_SCROLLS || feedPages >= MAX_FEED_PAGES) break;
-      if (now() - t0 > budget.maxMs * FEED_SHARE) break;
+      if (caughtUp) break;
+      // A first refresh has nothing to reach: its few pages are the window.
+      if (idle > MAX_IDLE_SCROLLS || feedPages >= MAX_FEED_PAGES) {
+        caughtUp = !before?.newestId && before?.newestAt === undefined;
+        break;
+      }
+      if (posts >= budget.maxPosts || now() - t0 > budget.maxMs * FEED_SHARE) break;
       if (!followingPage.hasNextPage) {
         caughtUp = true;
         break;

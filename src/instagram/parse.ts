@@ -141,21 +141,26 @@ export function phoneSize(candidates: Candidate[]): Candidate | undefined {
   return sorted.find((c) => (c.width ?? 0) <= PHONE_IMAGE_WIDTH) ?? sorted[sorted.length - 1];
 }
 
-function largest(candidates: Candidate[]) {
-  return [...candidates].filter((c) => c?.url).sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0];
+// A video's length: video_duration when set (stories), else the DASH
+// manifest's mediaPresentationDuration (feed videos leave video_duration null).
+function durationSec(item: Json): number | undefined {
+  if (typeof item.video_duration === "number" && item.video_duration > 0) return item.video_duration;
+  const m = /mediaPresentationDuration="PT(?:(\d+)H)?(?:(\d+)M)?([\d.]+)S"/.exec(String(item.video_dash_manifest ?? ""));
+  if (!m) return undefined;
+  return Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3]);
 }
 
+// Media at phone quality (about 1080 px wide): the URL, size and uploaded
+// file all describe the same candidate. Videos carry their poster frame.
 function mediaOf(item: Json): CapturedMedia[] {
   if (Array.isArray(item.carousel_media) && item.carousel_media.length) {
     return item.carousel_media.flatMap(mediaOf);
   }
-  const images: Candidate[] = item.image_versions2?.candidates ?? [];
-  const image = largest(images);
-  const poster = phoneSize(images);
+  const image = phoneSize(item.image_versions2?.candidates ?? []);
   const alt = item.accessibility_caption ? { altText: String(item.accessibility_caption) } : {};
-  const videos: Candidate[] = item.video_versions ?? [];
-  const video = videos.length ? phoneSize(videos) : undefined;
+  const video = phoneSize(item.video_versions ?? []);
   if (video) {
+    const duration = durationSec(item);
     return [
       {
         kind: "video",
@@ -164,8 +169,8 @@ function mediaOf(item: Json): CapturedMedia[] {
         width: video.width ?? item.original_width,
         height: video.height ?? item.original_height,
         ...alt,
-        ...(item.video_duration ? { durationSec: Number(item.video_duration) } : {}),
-        upload: { image: poster?.url, video: video.url },
+        ...(duration ? { durationSec: duration } : {}),
+        upload: { image: image?.url, video: video.url },
       },
     ];
   }
@@ -177,7 +182,7 @@ function mediaOf(item: Json): CapturedMedia[] {
       width: image.width ?? item.original_width,
       height: image.height ?? item.original_height,
       ...alt,
-      upload: { image: poster?.url },
+      upload: { image: image.url },
     },
   ];
 }

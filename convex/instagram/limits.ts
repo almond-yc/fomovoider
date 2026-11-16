@@ -18,3 +18,14 @@ export const WEBVIEW_BUDGET = { maxMs: 4 * 60_000, maxPosts: 60, maxStoryFrames:
 export const WEBVIEW_MIN_GAP_MS = { open: 10 * 60_000, manual: 2 * 60_000, background: 3 * 3_600_000 };
 export const WEBVIEW_MAX_RUNS_PER_DAY = 12;
 export const WEBVIEW_STALE_CLAIM_MS = 6 * 60_000;
+
+// DMs. The web view loads the inbox at most this often per trigger: on app
+// open, when a realtime delta needs a reload, and from background refresh.
+// A claimed send or seen receipt the phone hasn't completed in
+// DM_CLAIM_TIMEOUT_MS is failed; a send is never retried.
+export const DM_SYNC_MIN_GAP_MS = { open: 2 * 60_000, realtime: 2 * 60_000, background: 3 * 3_600_000 };
+export const DM_CLAIM_TIMEOUT_MS = 3 * 60_000;
+// A send or seen receipt the phone hasn't claimed in this long (the app was
+// closed or Instagram paused) fails instead of going out late.
+export const DM_QUEUE_TTL_MS = 10 * 60_000;
+export const DM_MAX_TEXT_LENGTH = 1_000;

@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { vPerson } from "../lib/validators";
 
 export const vBudget = v.object({
   maxMs: v.number(),
@@ -125,4 +126,42 @@ export const instagramTables = {
     reason: v.optional(v.string()),
     updatedAt: v.number(),
   }).index("by_name", ["name"]),
+
+  // DMs (convex/instagram/dms.ts). One row per Primary inbox thread the web
+  // view has seen: the id in its URL, which the phone opens to send or mark
+  // it seen, and its members by messaging id, to name message senders.
+  instagram_threads: defineTable({
+    userId: v.id("users"),
+    conversationId: v.string(),
+    threadKey: v.string(),
+    members: v.array(v.object({ fbid: v.string(), person: vPerson })),
+    updatedAt: v.number(),
+  }).index("by_userId_and_conversationId", ["userId", "conversationId"]),
+
+  // Per user: the viewer's messaging ids (to tell their own messages apart)
+  // and when the web view last loaded the inbox.
+  instagram_dmState: defineTable({
+    userId: v.id("users"),
+    viewerIds: v.array(v.string()),
+    lastSyncAt: v.optional(v.number()),
+  }).index("by_userId", ["userId"]),
+
+  // Sends and seen receipts waiting for the phone's web view. send.message
+  // and send.markRead add them; the web view claims each one, does it
+  // through the page and completes it.
+  instagram_outbox: defineTable({
+    userId: v.id("users"),
+    accountId: v.id("connectedAccounts"),
+    conversationId: v.string(),
+    kind: v.union(v.literal("send"), v.literal("markRead")),
+    text: v.optional(v.string()),
+    // The pending messages row (instagram:local:<outbox id>) a send shows.
+    messageId: v.optional(v.string()),
+    state: v.union(v.literal("pending"), v.literal("claimed"), v.literal("done"), v.literal("failed")),
+    createdAt: v.number(),
+    claimedAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+  })
+    .index("by_userId_and_state", ["userId", "state"])
+    .index("by_userId_and_conversationId_and_kind_and_state", ["userId", "conversationId", "kind", "state"]),
 };

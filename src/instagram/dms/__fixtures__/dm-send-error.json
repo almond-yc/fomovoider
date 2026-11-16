@@ -1,0 +1,13 @@
+{
+ "data": {
+  "xig_direct_text_send_with_slide_messaging_response": null
+ },
+ "errors": [
+  {
+   "message": "message text 38",
+   "severity": "CRITICAL",
+   "code": 1675030
+  }
+ ],
+ "extensions": {}
+}

@@ -403,3 +403,58 @@ describe("brief.setTimeZone", () => {
     await expect(as.mutation(api.brief.setTimeZone, { timeZone: "Nowhere/Else" })).rejects.toThrow("Unknown time zone");
   });
 });
+
+describe("brief.rerunToday", () => {
+  test("clears today's run, its items and verdicts, starts a new one, and refuses while one is running", async () => {
+    const t = setup();
+    const userId = await addUser(t);
+    const postId = await addPost(t, userId, 1);
+    const oldRun = await addRun(t, userId);
+    const yesterday = await addRun(t, userId, "2026-11-15");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("brief_verdicts", { userId, postId, briefRunId: oldRun, ...verdict(), model: "m", judgedAt: 1 });
+      await ctx.db.insert("brief_items", {
+        briefRunId: oldRun,
+        userId,
+        date: "2026-11-16",
+        postId,
+        rank: 0,
+        priority: 0.5,
+        reason: "Real update",
+        attachMedia: false,
+        mediaIndices: [],
+      });
+    });
+    const as = t.withIdentity({ subject: `${userId}|session` });
+
+    await expect(as.mutation(api.brief.rerunToday, {})).rejects.toThrow("still running");
+    await t.run((ctx) => ctx.db.patch(oldRun, { status: "done" }));
+    const newRun = await as.mutation(api.brief.rerunToday, {});
+
+    expect(await t.run((ctx) => ctx.db.get(oldRun))).toBeNull();
+    expect(await t.run((ctx) => ctx.db.query("brief_verdicts").collect())).toEqual([]);
+    expect(await t.run((ctx) => ctx.db.query("brief_items").collect())).toEqual([]);
+    expect(await t.run((ctx) => ctx.db.get(yesterday))).not.toBeNull();
+    expect(await t.run((ctx) => ctx.db.get(newRun))).toMatchObject({ date: "2026-11-16", status: "collecting" });
+    expect((await t.run((ctx) => ctx.db.get(newRun)))?.workflowId).toBeDefined();
+    await expect(as.mutation(api.brief.rerunToday, {})).rejects.toThrow("still running");
+    await expect(t.mutation(api.brief.rerunToday, {})).rejects.toThrow("Not signed in");
+  });
+
+  test("a first-day rerun later in the day selects from the original window", async () => {
+    const t = setup();
+    const userId = await addUser(t);
+    await addPost(t, userId, 1, { createdAt: Date.now() - 20 * HOUR });
+    const as = t.withIdentity({ subject: `${userId}|session` });
+    const first = await as.mutation(api.brief.rerunToday, {});
+    await t.mutation(internal.brief.workflow.select, { runId: first, skipped: [] });
+    const since = (await t.run((ctx) => ctx.db.get(first)))?.since;
+    await t.run((ctx) => ctx.db.patch(first, { status: "done" }));
+
+    vi.setSystemTime(LA_DISPATCH + 12 * HOUR);
+    const rerun = await as.mutation(api.brief.rerunToday, {});
+    await t.mutation(internal.brief.workflow.select, { runId: rerun, skipped: [] });
+    expect(await t.run((ctx) => ctx.db.get(rerun))).toMatchObject({ since, counts: { selected: 1 } });
+    expect(await t.run((ctx) => ctx.db.query("brief_verdicts").collect())).toEqual([]);
+  });
+});

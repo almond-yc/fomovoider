@@ -204,7 +204,7 @@ function describe(
       };
     case 'active':
       if (!account.lastSyncedAt) return { text: igConnected ? 'Connected · Syncing…' : 'Syncing…', busy: true };
-      if (syncingMore) return { text: 'Connected · Syncing more…', busy: true };
+      if (syncingMore) return { text: 'Syncing more…', busy: true };
       return { text: variant === 'settings' ? `Connected · Synced ${ago(account.lastSyncedAt)}` : 'Connected' };
   }
 }

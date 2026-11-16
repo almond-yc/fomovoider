@@ -24,7 +24,7 @@ export function SyncingMore({ platforms, className }: { platforms: string[] | un
       accessibilityRole="progressbar"
       accessibilityLabel={`Syncing more from ${names}`}>
       <ActivityIndicator size="small" />
-      <Text variant="muted" className="flex-1 text-xs" numberOfLines={1}>
+      <Text variant="muted" className="shrink text-xs" numberOfLines={1}>
         Syncing more from {names}…
       </Text>
     </View>

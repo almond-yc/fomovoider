@@ -286,7 +286,12 @@ describe("X Chat passcode", () => {
     const [stuck] = await t.run((ctx) => ctx.db.query("conversations").collect());
     expect(stuck.unavailable).toMatchObject({ reason: "locked" });
 
-    const result = await t.action(internal.x.chatNode.backfill, { accountId, maxReads: 50 });
+    // Convex's runtime doesn't enumerate process.env, so spreading it loses every variable.
+    const env = process.env;
+    process.env = new Proxy(env, { ownKeys: () => [], getOwnPropertyDescriptor: () => undefined });
+    const result = await t.action(internal.x.chatNode.backfill, { accountId, maxReads: 50 }).finally(() => {
+      process.env = env;
+    });
     expect(result).toMatchObject({ conversations: 1, decrypted: 1, stillLocked: 0 });
     expect(result.eventsFetched).toBeGreaterThan(0);
     expect(result.eventsFetched).toBeLessThanOrEqual(50);

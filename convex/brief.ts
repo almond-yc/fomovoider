@@ -4,6 +4,7 @@ import { mutation, query, type QueryCtx } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
 import { resolvePost } from "./lib/media";
 import { isValidTimeZone, localTime, resolveTimeZone } from "./brief/time";
+import { startBrief } from "./brief/workflow";
 
 // The Morning Brief as the app reads it. Every query is the signed-in user's.
 // Dates are the user's local YYYY-MM-DD; times are epoch ms.
@@ -108,5 +109,41 @@ export const setTimeZone = mutation({
     const user = await ctx.db.get(userId);
     if (user && user.timeZone !== timeZone) await ctx.db.patch(userId, { timeZone });
     return null;
+  },
+});
+
+// Settings' "Rerun today's brief": drops today's run, its items and the
+// verdicts it saved, so those posts are judged again, and starts a new run.
+// Refuses while today's run is still collecting or judging.
+export const rerunToday = mutation({
+  args: {},
+  returns: v.id("brief_runs"),
+  handler: async (ctx) => {
+    const userId = await requireUserId(ctx);
+    const timeZone = await viewerTimeZone(ctx, userId);
+    const date = localTime(Date.now(), timeZone).date;
+    const run = await ctx.db
+      .query("brief_runs")
+      .withIndex("by_userId_and_date", (q) => q.eq("userId", userId).eq("date", date))
+      .first();
+    if (run) {
+      if (run.status === "collecting" || run.status === "judging") {
+        throw new Error("Today's brief is still running");
+      }
+      const items = await ctx.db
+        .query("brief_items")
+        .withIndex("by_briefRunId_and_rank", (q) => q.eq("briefRunId", run._id))
+        .collect();
+      for (const item of items) await ctx.db.delete(item._id);
+      const verdicts = await ctx.db
+        .query("brief_verdicts")
+        .withIndex("by_briefRunId", (q) => q.eq("briefRunId", run._id))
+        .collect();
+      for (const verdict of verdicts) await ctx.db.delete(verdict._id);
+      await ctx.db.delete(run._id);
+    }
+    const runId = await startBrief(ctx, userId, date, timeZone);
+    if (!runId) throw new Error("Today's brief already exists");
+    return runId;
   },
 });

@@ -8,6 +8,7 @@ import type { FunctionReturnType } from 'convex/server';
 import { CircleCheck, Coffee, Sparkles, TriangleAlert, type LucideIcon } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, AppState, FlatList, Pressable, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { DateStrip } from './date-strip';
 
@@ -53,13 +54,19 @@ export function BriefScreen() {
   const selected = picked !== null && picked < today ? picked : today;
   const brief = useQuery(api.brief.byDate, { date: selected });
 
-  if (dates === undefined) return <Loading />;
-
+  // On iOS the root header overlaps the tab's content; the top safe area
+  // includes it there, and is zero on Android and web.
   return (
-    <View className="flex-1 bg-background">
-      <DateStrip today={today} selected={selected} available={available} onSelect={setPicked} />
-      <BriefBody key={selected} brief={brief} isToday={selected === today} />
-    </View>
+    <SafeAreaView edges={['top']} className="flex-1 bg-background">
+      {dates === undefined ? (
+        <Loading />
+      ) : (
+        <>
+          <DateStrip today={today} selected={selected} available={available} onSelect={setPicked} />
+          <BriefBody key={selected} brief={brief} isToday={selected === today} />
+        </>
+      )}
+    </SafeAreaView>
   );
 }
 
@@ -111,6 +118,7 @@ function BriefList({ run, items }: Brief) {
   return (
     <FlatList
       data={items}
+      contentInsetAdjustmentBehavior="automatic"
       keyExtractor={(item) => item._id}
       ListEmptyComponent={
         <View className="items-center gap-2 px-10 pt-16">

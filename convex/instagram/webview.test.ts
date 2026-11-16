@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import schema from "../schema";
+import { sha256Hex } from "./common";
 
 const modules = import.meta.glob("/convex/**/*.ts");
 const me = { id: "instagram:nico", platform: "instagram", handle: "nico", displayName: "Nico" };
@@ -183,5 +184,59 @@ describe("instagram web view", () => {
     expect(run.trigger).toBe("manual");
     const row = await t.run((ctx) => ctx.db.get(queued));
     expect(row?.state).toBe("claimed");
+  });
+
+  test("switching drivers revokes the other one and ends its runs", async () => {
+    const { t, userId, as } = await signedIn();
+    const { code } = await t.mutation(internal.instagram.devices.pairForUser, { userId });
+    await t.mutation(api.instagram.agent.redeemPairing, { code, tokenHash: await sha256Hex("agent-token") });
+    const agentRun = await t.mutation(internal.instagram.devices.runNowForUser, { userId });
+
+    await as.mutation(api.instagram.webview.connect, { me });
+    expect(await t.run((ctx) => ctx.db.get(agentRun))).toMatchObject({ state: "skipped" });
+    await expect(t.mutation(api.instagram.agent.claimRun, { token: "agent-token" })).rejects.toThrow("Unknown device token");
+    const webRun = await started(as, "manual");
+
+    const again = await t.mutation(internal.instagram.devices.pairForUser, { userId });
+    await t.mutation(api.instagram.agent.redeemPairing, { code: again.code, tokenHash: await sha256Hex("agent-token") });
+    expect(await t.run((ctx) => ctx.db.get(webRun.runId))).toMatchObject({ state: "failed" });
+    expect(await as.mutation(api.instagram.webview.startRefresh, { trigger: "manual" })).toMatchObject({
+      kind: "blocked",
+      reason: "not_connected",
+    });
+  });
+
+  test("logging in again lifts a login pause but not a challenge pause", async () => {
+    const { t, as } = await connected();
+    const trip = async (kind: "login" | "challenge") => {
+      const run = await started(as, "manual");
+      await as.mutation(api.instagram.webview.finish, {
+        runId: run.runId,
+        stats: { posts: 0, storyFrames: 0, durationMs: 1000 },
+        tripwire: { kind, screenText: "https://www.instagram.com/accounts/login/" },
+      });
+      await t.run(async (ctx) => {
+        await ctx.db.patch(run.runId, { claimedAt: 0, scheduledFor: 0 });
+      });
+      await as.mutation(api.instagram.webview.connect, { me });
+      return (await as.query(api.instagram.webview.state, {})).pausedUntil;
+    };
+    expect(await trip("login")).toBeUndefined();
+    expect(await trip("challenge")).toBeGreaterThan(Date.now());
+  });
+
+  test("the stories cursor keeps the latest reel fetched", async () => {
+    const { t, as } = await connected();
+    const run = await started(as);
+    await as.mutation(api.instagram.webview.submit, {
+      runId: run.runId,
+      items: [],
+      feedPage: { variant: "stories", hasNextPage: false, newestAt: 1_794_779_564_000 },
+    });
+    await as.mutation(api.instagram.webview.finish, { runId: run.runId, stats: { posts: 0, storyFrames: 0, durationMs: 1 } });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(run.runId, { claimedAt: 0, scheduledFor: 0 });
+    });
+    expect((await started(as)).cursors.stories).toEqual({ hasNextPage: false, newestAt: 1_794_779_564_000 });
   });
 });

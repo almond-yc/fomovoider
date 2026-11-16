@@ -3,7 +3,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { vMedia, vPerson, vPostInput, type PostInput } from "../lib/validators";
-import { deviceForToken, killSwitch } from "./common";
+import { closeOpenRuns, deviceForToken, killSwitch } from "./common";
 import { KILL_SWITCH_RECHECK_MS, STALE_CLAIM_MS, TRIPWIRE_PAUSE_MS } from "./limits";
 import { vFacts, vRunStats, vTripwire } from "./schema";
 
@@ -28,7 +28,10 @@ export const redeemPairing = mutation({
       platform: "instagram",
       deviceId: device._id,
     });
+    // Pairing the Mac host agent takes over from the app's web view.
+    if (device.transport === "webview") await closeOpenRuns(ctx, device._id, "switched to the host agent");
     await ctx.db.patch(device._id, {
+      transport: undefined,
       tokenHash,
       accountId,
       pairingCode: undefined,

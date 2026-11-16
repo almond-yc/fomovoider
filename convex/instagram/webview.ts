@@ -5,7 +5,7 @@ import { mutation, query, type MutationCtx, type QueryCtx } from "../_generated/
 import { requireUserId } from "../lib/auth";
 import { vMedia, vPerson, vPostInput, type PostInput } from "../lib/validators";
 import { finishClaimedRun, ownedAccount, ownUpload, upsertFacts } from "./agent";
-import { killSwitch } from "./common";
+import { closeOpenRuns, killSwitch } from "./common";
 import {
   WEBVIEW_BUDGET,
   WEBVIEW_MAX_RUNS_PER_DAY,
@@ -49,7 +49,18 @@ export const connect = mutation({
       });
       device = (await ctx.db.get(id))!;
     } else {
-      await ctx.db.patch(device._id, { transport: "webview", ...(timezone ? { timezone } : {}) });
+      // Logging in again lifts a pause that a login page caused; challenge
+      // and rate-limit pauses stay.
+      const loginPause = device.pauseReason?.startsWith("login:") ?? false;
+      // Switching from the Mac host agent revokes its token and ends its runs,
+      // so only the web view reads from now on.
+      if (device.transport !== "webview") await closeOpenRuns(ctx, device._id, "switched to the app web view");
+      await ctx.db.patch(device._id, {
+        transport: "webview",
+        tokenHash: undefined,
+        ...(timezone ? { timezone } : {}),
+        ...(loginPause ? { pausedUntil: undefined, pauseReason: undefined } : {}),
+      });
     }
     let accountId: Id<"connectedAccounts"> | undefined = device.accountId;
     const account = accountId ? await ctx.db.get(accountId) : null;
@@ -75,6 +86,7 @@ const vCursor = v.object({
   endCursor: v.optional(v.string()),
   hasNextPage: v.boolean(),
   newestId: v.optional(v.string()),
+  newestAt: v.optional(v.number()),
 });
 
 const vStart = v.union(
@@ -90,7 +102,7 @@ const vStart = v.union(
     runId: v.id("instagram_runs"),
     trigger: v.string(),
     budget: v.object({ maxMs: v.number(), maxPosts: v.number(), maxStoryFrames: v.number() }),
-    cursors: v.object({ home: v.optional(vCursor), following: v.optional(vCursor) }),
+    cursors: v.object({ home: v.optional(vCursor), following: v.optional(vCursor), stories: v.optional(vCursor) }),
     knownIds: v.array(v.string()),
   }),
 );
@@ -158,13 +170,16 @@ export const startRefresh = mutation({
         });
     await ctx.db.patch(runId, { state: "claimed", claimedAt: now, budget: WEBVIEW_BUDGET });
 
-    const cursors: { home?: CursorOut; following?: CursorOut } = {};
-    for (const variant of ["home", "following"] as const) {
+    const cursors: { home?: CursorOut; following?: CursorOut; stories?: CursorOut } = {};
+    for (const variant of ["home", "following", "stories"] as const) {
       const row = await ctx.db
         .query("instagram_feedCursors")
         .withIndex("by_deviceId_and_variant", (q) => q.eq("deviceId", device._id).eq("variant", variant))
         .unique();
-      if (row) cursors[variant] = { endCursor: row.endCursor, hasNextPage: row.hasNextPage, newestId: row.newestId };
+      if (row) {
+        const { endCursor, hasNextPage, newestId, newestAt } = row;
+        cursors[variant] = { endCursor, hasNextPage, newestId, newestAt };
+      }
     }
     const known = await ctx.db
       .query("posts")
@@ -182,7 +197,7 @@ export const startRefresh = mutation({
   },
 });
 
-type CursorOut = { endCursor?: string; hasNextPage: boolean; newestId?: string };
+type CursorOut = { endCursor?: string; hasNextPage: boolean; newestId?: string; newestAt?: number };
 
 async function claimedRun(ctx: MutationCtx, runId: Id<"instagram_runs">) {
   const userId = await requireUserId(ctx);
@@ -234,6 +249,7 @@ export const submit = mutation({
         endCursor: v.optional(v.string()),
         hasNextPage: v.boolean(),
         newestId: v.optional(v.string()),
+        newestAt: v.optional(v.number()),
       }),
     ),
   },
@@ -266,7 +282,7 @@ export const submit = mutation({
     }
     if (posts.length) await ctx.runMutation(internal.ingest.upsertPosts, { accountId, posts });
     if (feedPage) {
-      const { variant, newestId, ...page } = feedPage;
+      const { variant, newestId, newestAt, ...page } = feedPage;
       const row = await ctx.db
         .query("instagram_feedCursors")
         .withIndex("by_deviceId_and_variant", (q) => q.eq("deviceId", device._id).eq("variant", variant))
@@ -276,6 +292,7 @@ export const submit = mutation({
         variant,
         ...page,
         newestId: newestId ?? row?.newestId,
+        newestAt: newestAt ?? row?.newestAt,
         updatedAt: Date.now(),
       };
       if (row) await ctx.db.replace(row._id, doc);

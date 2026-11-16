@@ -15,7 +15,7 @@ import {
 import { AppState, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { captureHookJs, FEED_OPERATIONS, type HookMessage } from "../hook";
-import { FOLLOWING_URL } from "../navigation";
+const LOGIN_URL = "https://www.instagram.com/accounts/login/";
 import { extract, parseResponseText } from "../parse";
 import { runRefresh, type PageControl, type RefreshApi, type RefreshResult } from "../refresh";
 import { tripwireFor } from "../tripwire";
@@ -81,7 +81,11 @@ export function InstagramWebViewHost({ children, operations = [] }: { children: 
   const [loginVisible, setLoginVisible] = useState(false);
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
   const [lastRefresh, setLastRefresh] = useState<RefreshResult>();
-  const mounted = Boolean(isAuthenticated && (state?.connected || loginVisible));
+  // The page is only alive for the login screen, or for a connected account
+  // that isn't stopped: the kill switch or a tripwire pause unmounts it, so
+  // instagram.com runs no requests of its own while refreshes are refused.
+  const paused = state?.pausedUntil !== undefined && state.pausedUntil > Date.now();
+  const mounted = Boolean(isAuthenticated && (loginVisible || (state?.connected && !state.killSwitch && !paused)));
   const status: InstagramStatus = !mounted ? "off" : loggedIn === null ? "loading" : loggedIn ? "ready" : "needs_login";
 
   const webview = useRef<WebView<object>>(null);
@@ -94,7 +98,15 @@ export function InstagramWebViewHost({ children, operations = [] }: { children: 
   const killed = useRef(false);
   killed.current = state?.killSwitch ?? false;
 
-  const hookJs = useMemo(() => captureHookJs([...new Set([...FEED_OPERATIONS, ...operations])]), [operations]);
+  const hookKey = useMemo(() => "_" + Math.random().toString(36).slice(2, 10), []);
+  const hookJs = useMemo(
+    () => captureHookJs([...new Set([...FEED_OPERATIONS, ...operations])], hookKey),
+    [operations, hookKey],
+  );
+  // The web view starts blank for a connected user (a refresh navigates it)
+  // and on instagram.com's login page for the login screen. Set once, so the
+  // page isn't reloaded when the login screen closes.
+  const [source] = useState(() => ({ uri: state?.connected ? "about:blank" : LOGIN_URL }));
 
   const onMessage = useCallback((listener: (m: HookMessage) => void) => {
     listeners.current.add(listener);
@@ -137,8 +149,9 @@ export function InstagramWebViewHost({ children, operations = [] }: { children: 
           );
         }),
       onMessage,
+      hookKey,
     }),
-    [onMessage],
+    [onMessage, hookKey],
   );
 
   const run = useCallback(
@@ -214,14 +227,14 @@ export function InstagramWebViewHost({ children, operations = [] }: { children: 
   // Refresh when the app comes to the foreground; Convex decides whether it
   // is due (startRefresh spacing) and refuses while the kill switch is on.
   useEffect(() => {
-    if (status !== "ready" || !state?.connected) return;
+    if (!mounted || loginVisible || !state?.connected || state.killSwitch) return;
     const maybeRefresh = () => {
       if (!busy.current && !killed.current) void refresh("open").catch(() => undefined);
     };
     maybeRefresh();
     const sub = AppState.addEventListener("change", (s) => s === "active" && maybeRefresh());
     return () => sub.remove();
-  }, [status, state?.connected, refresh]);
+  }, [mounted, loginVisible, state?.connected, state?.killSwitch, refresh]);
 
   const value = useMemo<InstagramWebViewValue>(
     () => ({
@@ -231,17 +244,16 @@ export function InstagramWebViewHost({ children, operations = [] }: { children: 
       hideLogin: () => setLoginVisible(false),
       run,
       onMessage,
-      refreshNow: () => (status === "ready" ? refresh("manual") : Promise.resolve(undefined)),
+      refreshNow: () => (state?.connected ? refresh("manual") : Promise.resolve(undefined)),
       lastRefresh,
     }),
-    [status, loginVisible, run, onMessage, refresh, lastRefresh],
+    [status, loginVisible, run, onMessage, refresh, lastRefresh, state?.connected],
   );
 
   return (
     <Context.Provider value={value}>
-      {children}
       {mounted && (
-        <View style={loginVisible ? styles.login : styles.hidden} pointerEvents={loginVisible ? "auto" : "none"}>
+        <View style={loginVisible ? styles.login : styles.behind} pointerEvents={loginVisible ? "auto" : "none"}>
           {loginVisible && (
             <View style={styles.header}>
               <Text style={styles.title}>Log in to Instagram</Text>
@@ -252,13 +264,13 @@ export function InstagramWebViewHost({ children, operations = [] }: { children: 
           )}
           <WebView<object>
             ref={webview}
-            source={{ uri: FOLLOWING_URL }}
+            source={source}
             userAgent={safariUserAgent()}
             injectedJavaScriptBeforeContentLoaded={hookJs}
             injectedJavaScriptBeforeContentLoadedForMainFrameOnly
             onMessage={handleMessage}
             onLoadEnd={(e: { nativeEvent: { url: string } }) => loadWaiters.current.forEach((w) => w(e.nativeEvent.url))}
-            onShouldStartLoadWithRequest={(req: { url: string }) => /^https?:/i.test(req.url)}
+            onShouldStartLoadWithRequest={allowNavigation}
             setSupportMultipleWindows={false}
             allowsBackForwardNavigationGestures={false}
             sharedCookiesEnabled
@@ -267,33 +279,54 @@ export function InstagramWebViewHost({ children, operations = [] }: { children: 
           />
         </View>
       )}
+      <View style={styles.app}>{children}</View>
     </Context.Provider>
   );
 }
 
-// Downloads a capture from Instagram's CDN and uploads it to Convex storage.
-async function uploadFile(source: string, uploadUrl: string) {
+// Only web pages load: "Open Instagram" and App Store links (itms-appss://,
+// instagram://) are refused, and the page itself may only move within
+// instagram.com. Frames (reCAPTCHA, Facebook login sync) load as usual.
+function allowNavigation(req: { url: string; isTopFrame?: boolean }) {
+  if (req.url === "about:blank") return true;
+  if (!/^https:/i.test(req.url)) return false;
+  if (req.isTopFrame === false) return true;
   try {
-    const media = await fetch(source);
+    return /(^|\.)instagram\.com$/i.test(new URL(req.url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+// Downloads a capture from Instagram's CDN and uploads it to Convex storage.
+async function uploadFile(source: string, uploadUrl: string, timeoutMs: number) {
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), timeoutMs);
+  try {
+    const media = await fetch(source, { signal: abort.signal });
     if (!media.ok) return undefined;
     const blob = await media.blob();
     const res = await fetch(uploadUrl, {
       method: "POST",
       headers: { "Content-Type": blob.type || "application/octet-stream" },
       body: blob,
+      signal: abort.signal,
     });
     if (!res.ok) return undefined;
     return ((await res.json()) as { storageId: string }).storageId;
   } catch {
     return undefined;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 const styles = StyleSheet.create({
-  // Full size but invisible: the spike (FOMO-23) found a zero-size or
-  // detached web view stops paginating, while a full-size one at opacity 0
-  // keeps loading like a visible page.
-  hidden: { ...StyleSheet.absoluteFill, opacity: 0, zIndex: -1 },
+  // Full size, attached to the window, behind the app's own (opaque) screens:
+  // the FOMO-23 spike found this loads and paginates like a visible page,
+  // while a zero-size or detached web view stops.
+  behind: { ...StyleSheet.absoluteFill, zIndex: 0 },
+  app: { flex: 1, zIndex: 1 },
   login: { ...StyleSheet.absoluteFill, zIndex: 1000, backgroundColor: "#fff", paddingTop: 54 },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, paddingBottom: 8 },
   title: { fontSize: 17, fontWeight: "600" },

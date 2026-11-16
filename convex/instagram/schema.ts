@@ -27,7 +27,9 @@ export const vFacts = v.object({
   storyTrayPosition: v.optional(v.number()),
 });
 
-export const vFeedVariant = v.union(v.literal("home"), v.literal("following"));
+// "stories" holds the story tray's progress: newestAt is the latest reel
+// update already fetched.
+export const vFeedVariant = v.union(v.literal("home"), v.literal("following"), v.literal("stories"));
 
 export const instagramTables = {
   // Which device and post an uploaded capture belongs to. submitItems binds a
@@ -99,15 +101,19 @@ export const instagramTables = {
     storyTrayPosition: v.optional(v.number()),
   }).index("by_userId_and_postId", ["userId", "postId"]),
 
-  // Where the web view's feed reading stopped, per device and feed variant:
-  // the page's own end_cursor of the deepest page captured, and the newest
-  // post seen at the top, so the next refresh stops once it reaches it.
+  // Where the web view's reading stopped, per device and variant: the page's
+  // own end_cursor of the deepest page captured (informational: it is not a
+  // stable cursor across sessions), and the newest post seen at the top, so
+  // the next refresh stops once it reaches it.
   instagram_feedCursors: defineTable({
     deviceId: v.id("instagram_devices"),
     variant: vFeedVariant,
     endCursor: v.optional(v.string()),
     hasNextPage: v.boolean(),
     newestId: v.optional(v.string()),
+    // taken_at (epoch ms) of newestId, so a refresh can stop by time when
+    // that post was deleted.
+    newestAt: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_deviceId_and_variant", ["deviceId", "variant"]),
 

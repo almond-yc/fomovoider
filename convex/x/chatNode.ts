@@ -310,7 +310,7 @@ async function openSession(ctx: ActionCtx, accountId: Id<"connectedAccounts">, b
     await ctx.runMutation(internal.x.chatKeys.markInvalid, { accountId, reason: KEYS_CHANGED });
     return null;
   }
-  const keys = await openKeys(row.encryptedKeys, accountId, account.me.id);
+  const keys = await openKeys(row.encryptedKeys, row.accountId, row.xUserId);
   const chat = await createChat();
   try {
     chat.importKeys({ keys, signingKeyVersion: row.signingKeyVersion });

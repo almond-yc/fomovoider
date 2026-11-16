@@ -1,79 +1,43 @@
 import { Text } from "@/components/ui/text";
-import { useXChat } from "@/src/xchat";
+import { api } from "@/convex/_generated/api";
 import { CONSENT_CHECKBOX, CONSENT_POINTS, CONSENT_TITLE } from "@/src/xchat/consent";
-import { hasConsented, recordConsent } from "@/src/xchat/passcode-store";
+import { passcodeErrorText, type SetPasscodeError } from "@/src/xchat/passcode-errors";
+import { useAction, useQuery } from "convex/react";
 import { router } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from "react-native";
 
-// Consent (first time), then the X Chat passcode. The passcode goes straight
-// to the on-device engine and is cleared from this screen right after.
+// Consent, then the X Chat passcode, which goes to the server once
+// (api.x.chatNode.setPasscode): it checks it with X and keeps only the
+// unlocked keys, for every app account linked to this X user. Nothing here
+// waits for the on-phone engine.
 export default function UnlockXChatScreen() {
-  const chat = useXChat();
-  const [consented, setConsented] = useState<boolean | null>(null);
-  const [checked, setChecked] = useState(false);
+  const status = useQuery(api.x.chatKeys.passcodeStatus, {});
+  const setPasscode = useAction(api.x.chatNode.setPasscode);
+  const [agreed, setAgreed] = useState(false);
   const [pin, setPin] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<SetPasscodeError | null>(null);
 
-  useEffect(() => {
-    void hasConsented().then(setConsented);
-  }, []);
+  useEffect(() => () => setPin(""), []);
 
-  useEffect(() => {
-    if (chat.status === "unlocked") router.back();
-  }, [chat.status]);
-
-  // Offer Face ID once when the screen opens; a cancelled prompt doesn't reopen.
-  const triedBiometrics = useRef(false);
-  useEffect(() => {
-    if (triedBiometrics.current || !consented || chat.status !== "locked" || !chat.passcodeSaved || !chat.biometricEnabled) return;
-    triedBiometrics.current = true;
-    void chat.unlockWithBiometrics();
-  }, [consented, chat]);
-
-  if (consented === null || chat.status === "loading") {
-    return (
-      <View className="flex-1 items-center justify-center bg-background">
-        <ActivityIndicator />
-      </View>
-    );
-  }
-
-  if (!consented) {
-    return (
-      <ScrollView className="flex-1 bg-background" contentContainerClassName="gap-4 p-6">
-        <Text variant="h3">{CONSENT_TITLE}</Text>
-        {CONSENT_POINTS.map((point) => (
-          <Text key={point} className="leading-6">
-            {"\u2022 "}
-            {point}
-          </Text>
-        ))}
-        <Pressable accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => setChecked((c) => !c)} className="flex-row gap-3">
-          <Text className="text-lg">{checked ? "\u2611" : "\u2610"}</Text>
-          <Text className="flex-1 leading-6">{CONSENT_CHECKBOX}</Text>
-        </Pressable>
-        <Pressable
-          disabled={!checked}
-          onPress={async () => {
-            await recordConsent();
-            setConsented(true);
-          }}
-          className={`items-center rounded-lg p-4 ${checked ? "bg-primary" : "bg-muted"}`}>
-          <Text className={checked ? "text-primary-foreground font-medium" : "text-muted-foreground"}>Continue</Text>
-        </Pressable>
-        <Pressable onPress={() => router.back()} className="items-center p-2">
-          <Text className="text-muted-foreground">Not now</Text>
-        </Pressable>
-      </ScrollView>
-    );
-  }
-
-  const error = chat.error;
-  const busy = chat.status === "unlocking";
+  const active = status?.status === "active";
+  const canSubmit = agreed && pin.length >= 4 && !busy;
   return (
-    <View className="flex-1 gap-4 bg-background p-6">
-      <Text variant="h3">Unlock X Chat</Text>
-      <Text className="text-muted-foreground leading-6">Enter the passcode you use for X Chat in the X app. It stays on this phone.</Text>
+    <ScrollView className="flex-1 bg-background" contentContainerClassName="gap-4 p-6" keyboardShouldPersistTaps="handled">
+      <Text variant="h3">{CONSENT_TITLE}</Text>
+      {active && <Text className="text-muted-foreground leading-6">X Chat is on. Enter your passcode again only if X asks for it.</Text>}
+      {status?.status === "invalid" && status.reason && <Text className="text-destructive leading-6">{status.reason}</Text>}
+      {CONSENT_POINTS.map((point) => (
+        <Text key={point} className="leading-6">
+          {"\u2022 "}
+          {point}
+        </Text>
+      ))}
+      <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: agreed }} onPress={() => setAgreed((c) => !c)} className="flex-row gap-3">
+        <Text className="text-lg">{agreed ? "\u2611" : "\u2610"}</Text>
+        <Text className="flex-1 leading-6">{CONSENT_CHECKBOX}</Text>
+      </Pressable>
       <TextInput
         value={pin}
         onChangeText={setPin}
@@ -87,30 +51,30 @@ export default function UnlockXChatScreen() {
         placeholder="X Chat passcode"
         className="rounded-lg border border-border p-4 text-foreground"
       />
-      {error && (
-        <Text className="text-destructive leading-6">
-          {error.kind === "invalidPin"
-            ? error.guessesRemaining === undefined
-              ? "Wrong passcode."
-              : `Wrong passcode. ${error.guessesRemaining} tries left before X deletes your key backup.${error.guessesRemaining < 5 ? " Stop here and reset your passcode in the X app instead." : ""}`
-            : error.message}
-        </Text>
-      )}
+      {error && <Text className="text-destructive leading-6">{passcodeErrorText(error)}</Text>}
       <Pressable
-        disabled={busy || pin.length < 4}
+        disabled={!canSubmit}
         onPress={async () => {
-          const value = pin;
+          const passcode = pin;
           setPin("");
-          await chat.unlock(value);
+          setError(null);
+          setBusy(true);
+          try {
+            const result = await setPasscode({ passcode });
+            if (result.ok) router.back();
+            else setError(result.error);
+          } catch (err) {
+            setError({ kind: "failed", message: err instanceof Error ? err.message : "Something went wrong. Try again." });
+          } finally {
+            setBusy(false);
+          }
         }}
-        className={`items-center rounded-lg p-4 ${busy || pin.length < 4 ? "bg-muted" : "bg-primary"}`}>
-        {busy ? <ActivityIndicator /> : <Text className="text-primary-foreground font-medium">Unlock</Text>}
+        className={`items-center rounded-lg p-4 ${canSubmit ? "bg-primary" : "bg-muted"}`}>
+        {busy ? <ActivityIndicator /> : <Text className={canSubmit ? "text-primary-foreground font-medium" : "text-muted-foreground"}>Continue</Text>}
       </Pressable>
-      {chat.passcodeSaved && chat.biometricEnabled && (
-        <Pressable onPress={() => void chat.unlockWithBiometrics()} className="items-center p-2">
-          <Text className="text-muted-foreground">Unlock with Face ID or fingerprint</Text>
-        </Pressable>
-      )}
-    </View>
+      <Pressable onPress={() => router.back()} className="items-center p-2">
+        <Text className="text-muted-foreground">Not now</Text>
+      </Pressable>
+    </ScrollView>
   );
 }

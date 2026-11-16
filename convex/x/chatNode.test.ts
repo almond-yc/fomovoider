@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import schema from "../schema";
 import conversationsFixture from "../../src/connectors/x/chat/fixtures/chat-conversations.json";
+import activitySamples from "../../src/connectors/x/fixtures/activity-events.json";
 import eventsFixture from "../../src/connectors/x/chat/fixtures/chat-events.json";
 import keysMe from "../../src/connectors/x/chat/fixtures/chat-public-keys-me.json";
 import keysAlice from "../../src/connectors/x/chat/fixtures/chat-public-keys-alice.json";
@@ -329,6 +330,81 @@ describe("X Chat passcode", () => {
     expect(conversation.unavailable).toBeUndefined();
     expect(generation).toBe(1);
     expect(calls.filter((c) => c.key === "POST /2/oauth2/token")).toHaveLength(1);
+  });
+
+  test("keys saved on one app account serve every app account of the same X user", async () => {
+    stubX();
+    const { t, accountId, as } = await setup();
+    const otherUser = await t.run((ctx) => ctx.db.insert("users", {}));
+    const other = t.withIdentity({ subject: `${otherUser}|session` });
+    const otherAccount = await other.mutation(api.accounts.connect, {
+      session: { platform: "x", kind: "oauth", accessToken: "access-2", refreshToken: "refresh-2", expiresAt: "2099-01-01T00:00:00.000Z" },
+    });
+    await t.mutation(internal.accounts.verifyIdentity, { accountId: otherAccount, me });
+
+    await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
+    expect(await other.query(api.x.chatKeys.passcodeStatus, {})).toEqual({ status: "active" });
+    await t.action(internal.x.chat.syncAccount, { accountId: otherAccount });
+    await settle(t);
+    const rows = await t.run((ctx) => ctx.db.query("conversations").withIndex("by_userId_and_id", (q) => q.eq("userId", otherUser).eq("id", ONE_TO_ONE)).unique());
+    expect(rows?.unavailable).toBeUndefined();
+    expect(rows?.lastMessage).toMatchObject({ text: "plain:RVZFTlQtMw==" });
+    expect(await other.action(api.messages.send, { conversationId: ONE_TO_ONE, text: "hola" })).toMatchObject({ ok: true });
+    expect(xdk.unlocks).toEqual([PASSCODE]);
+
+    await as.mutation(api.accounts.disconnect, { platform: "x" });
+    expect(await other.query(api.x.chatKeys.passcodeStatus, {})).toEqual({ status: "active" });
+    expect(await t.run((ctx) => ctx.db.query("x_chat_keys").collect())).toHaveLength(1);
+    await t.action(internal.x.chat.syncAccount, { accountId: otherAccount });
+    await settle(t);
+    expect(await other.action(api.messages.send, { conversationId: ONE_TO_ONE, text: "again" })).toMatchObject({ ok: true });
+
+    await other.mutation(api.accounts.disconnect, { platform: "x" });
+    expect(await t.run((ctx) => ctx.db.query("x_chat_keys").collect())).toEqual([]);
+    void accountId;
+  });
+
+  test("a webhook X Chat message is decrypted for every app account of the X user", async () => {
+    stubX();
+    const { t, as } = await setup();
+    const otherUser = await t.run((ctx) => ctx.db.insert("users", {}));
+    const other = t.withIdentity({ subject: `${otherUser}|session` });
+    const otherAccount = await other.mutation(api.accounts.connect, {
+      session: { platform: "x", kind: "oauth", accessToken: "access-2", refreshToken: "refresh-2", expiresAt: "2099-01-01T00:00:00.000Z" },
+    });
+    await t.mutation(internal.accounts.verifyIdentity, { accountId: otherAccount, me });
+    await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
+    await settle(t);
+
+    const event = structuredClone(activitySamples["chat.received"]).data as Record<string, unknown> & { payload: Record<string, unknown> };
+    event.event_uuid = "pushed-1";
+    event.filter = { user_id: ME };
+    event.payload = { ...event.payload, sender_id: ALICE, conversation_id: `${ALICE}:${ME}`, encoded_event: "RVZFTlQtNw==", created_at_msec: String(Date.parse("2026-11-16T01:00:00Z")) };
+    delete event.payload.conversation_key_change_event;
+    await t.mutation(internal.x.webhook.accept, { events: [event] });
+    await settle(t);
+
+    const rows = await t.run((ctx) => ctx.db.query("conversations").collect());
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.unavailable).toBeUndefined();
+      expect(row.lastMessage).toMatchObject({ text: "plain:RVZFTlQtNw==" });
+    }
+  });
+
+  test("removePasscode on any linked app account removes the X user's keys for all of them", async () => {
+    stubX();
+    const { t, as } = await setup();
+    const otherUser = await t.run((ctx) => ctx.db.insert("users", {}));
+    const other = t.withIdentity({ subject: `${otherUser}|session` });
+    const otherAccount = await other.mutation(api.accounts.connect, {
+      session: { platform: "x", kind: "oauth", accessToken: "access-2", refreshToken: "refresh-2", expiresAt: "2099-01-01T00:00:00.000Z" },
+    });
+    await t.mutation(internal.accounts.verifyIdentity, { accountId: otherAccount, me });
+    await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
+    await other.mutation(api.x.chatKeys.removePasscode, {});
+    expect(await as.query(api.x.chatKeys.passcodeStatus, {})).toEqual({ status: "none" });
+    expect(await t.run((ctx) => ctx.db.query("x_chat_keys").collect())).toEqual([]);
   });
 
   test("messages.send sends X Chat messages encrypted on the server", async () => {

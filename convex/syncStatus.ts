@@ -45,14 +45,16 @@ async function feedCaughtUp(ctx: QueryCtx, userId: Id<"users">, platform: string
 
 async function chatsSyncing(ctx: QueryCtx, account: Doc<"connectedAccounts">) {
   if (account.platform === "x") {
-    // No x_sync_state yet: the first sync hasn't run. A dmCursor or chatCursor
-    // is a DM or X Chat listing pass cut short; a conversation cursor is an
-    // X Chat history fetch that later runs continue.
+    // The legacy DM pass and the X Chat listing run separately, so each must
+    // have finished once for this identity. A dmCursor or chatCursor is a
+    // later pass cut short; a conversation cursor is an X Chat history fetch
+    // that later runs continue.
     const state = await ctx.db
       .query("x_sync_state")
       .withIndex("by_accountId", (q) => q.eq("accountId", account._id))
       .unique();
     if (!state || state.xUserId !== account.me?.id) return true;
+    if (!state.dmPassDone || !state.chatPassDone) return true;
     if (state.dmCursor !== undefined || state.chatCursor !== undefined) return true;
     const unfinished = await ctx.db
       .query("x_chat_cursors")
@@ -62,9 +64,10 @@ async function chatsSyncing(ctx: QueryCtx, account: Doc<"connectedAccounts">) {
     return unfinished !== null;
   }
   if (account.platform === "instagram") {
-    // Only the app's web view reads Instagram DMs. dms:submit records which
-    // Instagram identity the inbox was read as, so until the web view has
-    // submitted the inbox once, it hasn't loaded.
+    // Only the app's web view reads Instagram DMs. dms:startSync stamps
+    // lastSyncAt when it starts loading the inbox (one page, no paging), and
+    // an empty inbox submits nothing, so a started load counts as done. A
+    // load submitted under another Instagram identity doesn't.
     const device = await ctx.db
       .query("instagram_devices")
       .withIndex("by_userId", (q) => q.eq("userId", account.userId))
@@ -74,7 +77,8 @@ async function chatsSyncing(ctx: QueryCtx, account: Doc<"connectedAccounts">) {
       .query("instagram_dmState")
       .withIndex("by_userId", (q) => q.eq("userId", account.userId))
       .unique();
-    return state?.meId === undefined || state.meId !== account.me?.id;
+    if (state?.lastSyncAt === undefined) return true;
+    return state.meId !== undefined && state.meId !== account.me?.id;
   }
   return false;
 }

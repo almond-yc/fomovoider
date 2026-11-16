@@ -14,6 +14,11 @@ export const xTables = {
     chatSince: v.optional(v.string()),
     chatCursor: v.optional(v.string()),
     chatPassNewestAt: v.optional(v.string()),
+    // Set once a legacy DM pass, or an X Chat listing pass, has run to the
+    // end for this identity, empty or not: until both are, the app shows the
+    // inbox as still syncing (syncStatus.status).
+    dmPassDone: v.optional(v.boolean()),
+    chatPassDone: v.optional(v.boolean()),
   }).index("by_accountId", ["accountId"]),
 
   // One sync at a time per account: a lease taken when a sync starts, and

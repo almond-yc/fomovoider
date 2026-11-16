@@ -41,6 +41,10 @@ describe("syncStatus.status", () => {
 
     await t.mutation(internal.ingest.upsertPosts, { accountId, posts: [], page: { cursor: "c2", caughtUp: true } });
     await t.mutation(internal.x.state.saveState, { accountId, xUserId: "x:me", patch: {}, endDmPass: true });
+    expect(await as.query(api.syncStatus.status, {})).toEqual({ feed: [], chats: ["x"] });
+
+    // The X Chat listing runs on its own; an empty one still finishes the sync.
+    await t.mutation(internal.x.state.saveState, { accountId, xUserId: "x:me", patch: {}, endChatPass: true });
     expect(await as.query(api.syncStatus.status, {})).toEqual({ feed: [], chats: [] });
   });
 
@@ -49,7 +53,8 @@ describe("syncStatus.status", () => {
     const accountId = await connect("x");
     await verify(accountId, "x");
     await t.mutation(internal.ingest.upsertPosts, { accountId, posts: [], page: { cursor: "c", caughtUp: true } });
-    await t.mutation(internal.x.state.saveState, { accountId, xUserId: "x:me", patch: {} });
+    await t.mutation(internal.x.state.saveState, { accountId, xUserId: "x:me", patch: {}, endDmPass: true, endChatPass: true });
+    expect(await as.query(api.syncStatus.status, {})).toEqual({ feed: [], chats: [] });
     await t.run((ctx) =>
       ctx.db.insert("x_chat_cursors", { userId, xUserId: "x:me", conversationId: "x:1", cursor: "next" }),
     );
@@ -64,7 +69,7 @@ describe("syncStatus.status", () => {
     expect(await as.query(api.syncStatus.status, {})).toEqual({ feed: [], chats: [] });
   });
 
-  test("Instagram chats sync until the web view has read the inbox", async () => {
+  test("Instagram chats sync until the web view has loaded the inbox for this identity", async () => {
     const { t, userId, as, connect, verify } = await setup();
     const accountId = await connect("instagram");
     await verify(accountId, "instagram");
@@ -80,7 +85,13 @@ describe("syncStatus.status", () => {
       }),
     );
     expect(await as.query(api.syncStatus.status, {})).toEqual({ feed: [], chats: ["instagram"] });
-    await t.run((ctx) => ctx.db.insert("instagram_dmState", { userId, viewerIds: ["1"], meId: "instagram:me" }));
+    // An inbox load started (dms:startSync); an empty inbox submits nothing.
+    const stateId = await t.run((ctx) => ctx.db.insert("instagram_dmState", { userId, viewerIds: [], lastSyncAt: 1 }));
+    expect(await as.query(api.syncStatus.status, {})).toEqual({ feed: [], chats: [] });
+    // Read as another Instagram identity: this one's inbox hasn't loaded.
+    await t.run((ctx) => ctx.db.patch(stateId, { meId: "instagram:someone-else" }));
+    expect(await as.query(api.syncStatus.status, {})).toEqual({ feed: [], chats: ["instagram"] });
+    await t.run((ctx) => ctx.db.patch(stateId, { meId: "instagram:me" }));
     expect(await as.query(api.syncStatus.status, {})).toEqual({ feed: [], chats: [] });
   });
 });

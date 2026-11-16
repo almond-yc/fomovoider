@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { vConversationFields, vMessage } from "../lib/validators";
 import { type MutationCtx, type QueryCtx, internalMutation, internalQuery } from "../_generated/server";
 
@@ -44,8 +44,10 @@ export const saveState = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, { accountId, xUserId, patch: fields, endDmPass, endChatPass }) => {
-    let patch = endDmPass ? { ...fields, dmCursor: undefined, dmPassNewestId: undefined } : fields;
-    if (endChatPass) patch = { ...patch, chatCursor: undefined, chatPassNewestAt: undefined };
+    let patch: Partial<Doc<"x_sync_state">> = endDmPass
+      ? { ...fields, dmCursor: undefined, dmPassNewestId: undefined, dmPassDone: true }
+      : fields;
+    if (endChatPass) patch = { ...patch, chatCursor: undefined, chatPassNewestAt: undefined, chatPassDone: true };
     const existing = await ctx.db
       .query("x_sync_state")
       .withIndex("by_accountId", (q) => q.eq("accountId", accountId))

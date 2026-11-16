@@ -8,6 +8,7 @@ import type { FunctionReturnType } from 'convex/server';
 import { CircleCheck, Coffee, Sparkles, TriangleAlert, type LucideIcon } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, AppState, FlatList, Pressable, View } from 'react-native';
+import { SafeAreaView } from 'react-native-screens/experimental';
 
 import { DateStrip } from './date-strip';
 
@@ -36,7 +37,9 @@ export function useLocalToday() {
   return today;
 }
 
-// The Feed tab: the Morning Brief for the picked day.
+// The Feed tab: the Morning Brief for the picked day. The tab's content runs
+// under the root stack's header and the native tab bar: the SafeAreaView keeps
+// the date strip below the header, and the list insets itself above the tab bar.
 export function BriefScreen() {
   const today = useLocalToday();
   const dates = useQuery(api.brief.dates);
@@ -53,12 +56,18 @@ export function BriefScreen() {
   const selected = picked !== null && picked < today ? picked : today;
   const brief = useQuery(api.brief.byDate, { date: selected });
 
-  if (dates === undefined) return <Loading />;
-
   return (
     <View className="flex-1 bg-background">
-      <DateStrip today={today} selected={selected} available={available} onSelect={setPicked} />
-      <BriefBody key={selected} brief={brief} isToday={selected === today} />
+      <SafeAreaView edges={{ top: true }}>
+        {dates === undefined ? (
+          <Loading />
+        ) : (
+          <>
+            <DateStrip today={today} selected={selected} available={available} onSelect={setPicked} />
+            <BriefBody key={selected} brief={brief} isToday={selected === today} />
+          </>
+        )}
+      </SafeAreaView>
     </View>
   );
 }
@@ -111,6 +120,7 @@ function BriefList({ run, items }: Brief) {
   return (
     <FlatList
       data={items}
+      contentInsetAdjustmentBehavior="automatic"
       keyExtractor={(item) => item._id}
       ListEmptyComponent={
         <View className="items-center gap-2 px-10 pt-16">

@@ -17,9 +17,9 @@ import {
   Inter_600SemiBold,
   useFonts,
 } from '@expo-google-fonts/inter';
-import { ThemeProvider } from 'expo-router/react-navigation';
+import { getFocusedRouteNameFromRoute, ThemeProvider } from 'expo-router/react-navigation';
 import { PortalHost } from '@rn-primitives/portal';
-import { Link, Stack, usePathname } from 'expo-router';
+import { Link, Stack } from 'expo-router';
 import { Settings, SlidersHorizontal } from 'lucide-react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -90,21 +90,21 @@ function RootNavigator() {
           <Stack.Screen name="onboarding" />
         </Stack.Protected>
         <Stack.Protected
-          guard={screen === 'connect'}
+          guard={screen === 'connect' || screen === 'app'}
           redirectTo={screen === 'xChatPasscode' ? '/x-chat-passcode' : undefined}>
           <Stack.Screen name="connect" />
         </Stack.Protected>
         <Stack.Protected guard={screen === 'app'}>
           <Stack.Screen
             name="(tabs)"
-            options={{
+            options={({ route }) => ({
               headerShown: true,
               title: 'Fomovoider',
               headerTitleAlign: 'center',
               headerShadowVisible: false,
               headerTitleStyle: { fontFamily: TITLE_FONT, fontSize: 18 },
-              headerRight: () => <HeaderActions />,
-            }}
+              headerRight: () => <HeaderActions onFeed={(getFocusedRouteNameFromRoute(route) ?? 'index') === 'index'} />,
+            })}
           />
           <Stack.Screen
             name="settings"
@@ -132,9 +132,10 @@ function RootNavigator() {
   );
 }
 
-// On the Feed tab, editing "What's slop for you?" sits next to Settings.
-function HeaderActions() {
-  const onFeed = usePathname() === '/';
+// On the Feed tab, editing "What's slop for you?" sits next to Settings. The
+// tab comes from the (tabs) route, not the URL, so the button stays while the
+// edit-slop sheet it opens is on top.
+function HeaderActions({ onFeed }: { onFeed: boolean }) {
   return (
     <View className="flex-row">
       {onFeed && (

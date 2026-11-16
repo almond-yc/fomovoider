@@ -2,29 +2,22 @@ import { PlatformRow } from '@/components/platform-row';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 import { api } from '@/convex/_generated/api';
-import {
-  errorMessage,
-  isMissingFunction,
-  PairingCancelled,
-  type ClientConnector,
-  type PairingCode,
-} from '@/lib/connectors';
-import { useConvex } from 'convex/react';
+import { errorMessage, isMissingFunction, type ClientConnector } from '@/lib/connectors';
+import { useInstagramWebView } from '@/src/instagram/webview/InstagramWebViewHost';
+import type { RefreshResult } from '@/src/instagram/refresh';
+import { useConvex, useQuery } from 'convex/react';
 import type { FunctionReturnType } from 'convex/server';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Alert, View } from 'react-native';
 
 export type AccountView = NonNullable<FunctionReturnType<typeof api.users.viewer>>['accounts'][number];
 
-type Attempt =
-  | { state: 'idle' }
-  | { state: 'connecting'; device: boolean }
-  | { state: 'pairing'; pairing: PairingCode }
-  | { state: 'error'; message: string };
+type Attempt = { state: 'idle' } | { state: 'connecting' } | { state: 'error'; message: string };
 
 // A platform row that connects through the connector registry. "connect" is
 // the Connect screen; "settings" adds the handle, last sync, Sync now and
-// Disconnect.
+// Disconnect. Instagram logs in through the app's web view and has Refresh now
+// instead of Sync now.
 export function ConnectionRow({
   connector,
   account,
@@ -35,30 +28,27 @@ export function ConnectionRow({
   variant: 'connect' | 'settings';
 }) {
   const convex = useConvex();
+  const ig = useInstagramWebView();
+  const isInstagram = connector.platform === 'instagram';
+  const igDevice = useQuery(api.instagram.devices.status, isInstagram ? {} : 'skip');
+  const igState = useQuery(api.instagram.webview.state, isInstagram && variant === 'settings' ? {} : 'skip');
   const [attempt, setAttempt] = useState<Attempt>({ state: 'idle' });
   const [note, setNote] = useState<string>();
-  const abort = useRef<AbortController | null>(null);
-  useEffect(() => () => abort.current?.abort(), []);
+  const [refreshing, setRefreshing] = useState(false);
 
   async function connect() {
     if (!connector.login) return;
-    abort.current?.abort();
-    const controller = new AbortController();
-    abort.current = controller;
     setNote(undefined);
     try {
-      const login = connector.login({
-        convex,
-        signal: controller.signal,
-        onPairingCode: (pairing) => setAttempt({ state: 'pairing', pairing }),
-      });
-      setAttempt({ state: 'connecting', device: login.kind === 'device' });
+      const login = connector.login({ convex });
+      if (login.kind === 'webview') {
+        ig.showLogin();
+        return;
+      }
+      setAttempt({ state: 'connecting' });
       if (login.kind === 'server') {
         await login.login();
-      } else if (login.kind === 'device') {
-        await login.pair();
       } else {
-        if (login.kind !== 'oauth') throw new Error('Web sign-in is not supported yet.');
         const session = await login.login();
         await convex.mutation(api.accounts.connect, { session });
         const started = connector.sync ? await convex.mutation(connector.sync, {}) : true;
@@ -66,8 +56,7 @@ export function ConnectionRow({
       }
       setAttempt({ state: 'idle' });
     } catch (err) {
-      if (err instanceof PairingCancelled) setAttempt({ state: 'idle' });
-      else setAttempt({ state: 'error', message: errorMessage(err, connector) });
+      setAttempt({ state: 'error', message: errorMessage(err, connector) });
     }
   }
 
@@ -79,6 +68,18 @@ export function ConnectionRow({
       setNote(started === false ? 'Synced recently. Try again in a few minutes.' : undefined);
     } catch (err) {
       setNote(errorMessage(err, connector));
+    }
+  }
+
+  async function refresh() {
+    setRefreshing(true);
+    setNote('Refreshing…');
+    try {
+      setNote(refreshNote(await ig.refreshNow()));
+    } catch (err) {
+      setNote(errorMessage(err, connector));
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -109,27 +110,22 @@ export function ConnectionRow({
     );
   }
 
-  const busy = attempt.state === 'connecting' || attempt.state === 'pairing';
+  const busy = attempt.state === 'connecting';
   const broken = account?.status === 'expired' || account?.status === 'error';
-  const status = describe(connector, account, attempt, variant);
+  const igConnected = isInstagram && (igDevice?.paired === true || ig.status === 'ready');
+  const paused = igState ? pausedLine(igState) : undefined;
+  const status = describe(connector, account, attempt, variant, igConnected);
 
   let action;
   if (busy) {
-    action =
-      attempt.state === 'pairing' ? (
-        <Button variant="outline" size="sm" onPress={() => abort.current?.abort()}>
-          <Text>Cancel</Text>
-        </Button>
-      ) : (
-        <ActivityIndicator className="px-4" />
-      );
+    action = <ActivityIndicator className="px-4" />;
   } else if (variant === 'settings' && account) {
     action = (
       <Button variant="outline" size="sm" onPress={disconnect}>
         <Text>Disconnect</Text>
       </Button>
     );
-  } else if (!account || broken) {
+  } else if ((!account && !igConnected) || broken) {
     action = (
       <Button size="sm" disabled={!connector.login} onPress={connect}>
         <Text>{account ? 'Reconnect' : 'Connect'}</Text>
@@ -143,6 +139,9 @@ export function ConnectionRow({
     if ((account.status === 'active' || account.status === 'pending') && connector.sync) {
       links.push({ label: 'Sync now', onPress: sync });
     }
+    if (variant === 'settings' && isInstagram && !broken && !refreshing && !paused) {
+      links.push({ label: 'Refresh now', onPress: refresh });
+    }
     if (variant === 'connect') links.push({ label: 'Disconnect', onPress: disconnect });
   }
 
@@ -151,12 +150,9 @@ export function ConnectionRow({
       platform={connector.platform}
       name={connector.name}
       subtitle={variant === 'settings' && account?.me ? `@${account.me.handle}` : connector.description}
-      status={note ?? status.text}
-      statusTone={status.tone}
+      status={note ?? paused ?? status.text}
+      statusTone={note || paused ? 'muted' : status.tone}
       action={action}>
-      {attempt.state === 'pairing' || (attempt.state === 'connecting' && attempt.device) ? (
-        <PairingStep pairing={attempt.state === 'pairing' ? attempt.pairing : undefined} />
-      ) : null}
       {links.length ? (
         <View className="ml-[60px] mt-1 flex-row gap-4">
           {links.map((link) => (
@@ -170,41 +166,23 @@ export function ConnectionRow({
   );
 }
 
-function PairingStep({ pairing }: { pairing?: PairingCode }) {
-  return (
-    <View className="ml-[60px] mt-3 gap-1.5 rounded-md bg-muted px-4 py-3">
-      <Text className="font-sans-medium text-sm">Pair a device</Text>
-      {pairing ? (
-        <>
-          <Text className="font-sans-semibold text-2xl tracking-[4px]" selectable>
-            {pairing.code}
-          </Text>
-          <Text variant="muted">
-            Enter this code in the Fomovoider agent on your Mac. It expires at{' '}
-            {new Date(pairing.expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.
-          </Text>
-        </>
-      ) : (
-        <Text variant="muted">Getting a pairing code…</Text>
-      )}
-    </View>
-  );
-}
-
 function describe(
   connector: ClientConnector,
   account: AccountView | undefined,
   attempt: Attempt,
-  variant: 'connect' | 'settings'
+  variant: 'connect' | 'settings',
+  igConnected: boolean
 ): { text?: string; tone?: 'muted' | 'destructive' } {
-  if (attempt.state === 'connecting' && !attempt.device) return { text: 'Connecting…' };
-  if (attempt.state === 'pairing') return { text: 'Waiting for your device…' };
+  if (attempt.state === 'connecting') return { text: 'Connecting…' };
   if (attempt.state === 'error') return { text: attempt.message, tone: 'destructive' };
-  if (!account) return connector.login ? {} : { text: 'Not available yet' };
+  if (!account) {
+    if (igConnected) return { text: 'Connected' };
+    return connector.login ? {} : { text: 'Not available yet' };
+  }
   switch (account.status) {
     case 'pending':
     case 'resetting':
-      return { text: 'Syncing…' };
+      return { text: igConnected ? 'Connected · Syncing…' : 'Syncing…' };
     case 'expired':
       return { text: 'Session expired. Reconnect to keep syncing.', tone: 'destructive' };
     case 'error':
@@ -213,9 +191,50 @@ function describe(
         tone: 'destructive',
       };
     case 'active':
-      if (!account.lastSyncedAt) return { text: 'Syncing…' };
+      if (!account.lastSyncedAt) return { text: igConnected ? 'Connected · Syncing…' : 'Syncing…' };
       return { text: variant === 'settings' ? `Connected · Synced ${ago(account.lastSyncedAt)}` : 'Connected' };
   }
+}
+
+function pausedLine(state: FunctionReturnType<typeof api.instagram.webview.state>) {
+  if (state.killSwitch) return 'Paused · Instagram refreshes are switched off for now.';
+  if (state.pausedUntil !== undefined && state.pausedUntil > Date.now()) {
+    return `Paused until ${when(state.pausedUntil)}`;
+  }
+}
+
+function refreshNote(result: RefreshResult | undefined) {
+  if (!result) return 'Log in to Instagram in this app to refresh it here.';
+  if ('detail' in result) {
+    const detail = result.detail;
+    if (detail.kind === 'blocked') {
+      if (detail.reason === 'paused' && detail.until) return `Paused until ${when(detail.until)}`;
+      if (detail.reason === 'not_connected') return 'Log in to Instagram in this app to refresh it here.';
+      return 'Paused · Instagram refreshes are switched off for now.';
+    }
+    if (detail.kind === 'wait') {
+      if (detail.reason === 'busy') return 'Already refreshing.';
+      if (detail.reason === 'daily_limit') return "Today's refreshes are used up.";
+      return `Refreshed recently. Try again at ${when(detail.retryAt)}.`;
+    }
+    return undefined;
+  }
+  const counts = `${count(result.posts, 'post')}, ${count(result.stories, 'story', 'stories')}`;
+  if (result.outcome === 'done') return `Refreshed · ${counts}`;
+  if (result.outcome === 'aborted') return `Refresh stopped early · ${counts}`;
+  return "Refresh failed. It'll try again next time you open the app.";
+}
+
+function count(n: number, one: string, many = one + 's') {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+function when(ms: number) {
+  const date = new Date(ms);
+  const time = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return date.toDateString() === new Date().toDateString()
+    ? time
+    : `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`;
 }
 
 function ago(ms: number) {

@@ -3,27 +3,18 @@ import type { ConnectorError, Login, PlatformId } from '@/src/connectors/types';
 import { createXLogin } from '@/src/connectors/x/login';
 import type { ConvexReactClient } from 'convex/react';
 import { ConvexError } from 'convex/values';
-import { makeFunctionReference, type FunctionReference } from 'convex/server';
+import type { FunctionReference } from 'convex/server';
 
-export interface PairingCode {
-  code: string;
-  expiresAt: number;
-}
-
-// How the app connects a platform. The contract's oauth and webview logins
-// return a Session the app stores with accounts.connect. A "server" login
-// finishes on the server, which stores, verifies and syncs the account itself.
-// A "device" pairing resolves once the connector has paired the device and
-// created the account; the app never stores device sessions.
-export type ClientLogin =
-  | Exclude<Login, { kind: 'device' }>
-  | { kind: 'server'; login(): Promise<unknown> }
-  | { kind: 'device'; pair(): Promise<void> };
+// How the app connects a platform. The contract's oauth login returns a
+// Session the app stores with accounts.connect. A "server" login finishes on
+// the server, which stores, verifies and syncs the account itself. A
+// "webview" login opens the in-app Instagram web view
+// (src/instagram/webview), which connects the account itself once the user
+// is logged in; its cookies never leave the phone.
+export type ClientLogin = Exclude<Login, { kind: 'device' }> | { kind: 'server'; login(): Promise<unknown> };
 
 export interface LoginContext {
   convex: ConvexReactClient;
-  signal: AbortSignal;
-  onPairingCode: (pairing: PairingCode) => void;
 }
 
 // The app's side of a connector: how to show it and how to connect it. The
@@ -41,30 +32,6 @@ export interface ClientConnector {
 }
 
 const xClientId = process.env.EXPO_PUBLIC_X_CLIENT_ID;
-
-// convex/instagram/devices.ts (FOMO-17). Pairing creates the connected
-// account (internal.accounts.connectDevice), so the app only asks for a code
-// and watches the status. Referenced by name so the build
-// doesn't depend on it; until it is deployed the calls fail with a missing
-// function error, which the row shows as "not available yet".
-interface InstagramDeviceStatus {
-  name: string;
-  paired: boolean;
-  pausedUntil?: number;
-  pauseReason?: string;
-}
-const instagramDevices = {
-  pair: makeFunctionReference<'mutation', { name?: string; timezone?: string }, PairingCode>(
-    'instagram/devices:pair'
-  ),
-  status: makeFunctionReference<'query', Record<string, never>, InstagramDeviceStatus | null>(
-    'instagram/devices:status'
-  ),
-  runNow: makeFunctionReference<'mutation', Record<string, never>, string>('instagram/devices:runNow'),
-  disconnect: makeFunctionReference<'mutation', Record<string, never>, null>(
-    'instagram/devices:disconnect'
-  ),
-};
 
 export const connectors: ClientConnector[] = [
   {
@@ -89,54 +56,14 @@ export const connectors: ClientConnector[] = [
     platform: 'instagram',
     name: 'Instagram',
     description: 'Posts and stories',
-    login: ({ convex, signal, onPairingCode }) => ({
-      kind: 'device',
-      async pair() {
-        const pairing = await convex.mutation(instagramDevices.pair, {
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        });
-        onPairingCode(pairing);
-        await waitForPairedDevice(convex, pairing.expiresAt, signal);
-      },
+    login: () => ({
+      kind: 'webview',
+      loginUrl: 'https://www.instagram.com/accounts/login/',
+      requiredCookies: ['sessionid'],
     }),
-    sync: instagramDevices.runNow,
-    disconnect: instagramDevices.disconnect,
+    disconnect: api.instagram.devices.disconnect,
   },
 ];
-
-function waitForPairedDevice(convex: ConvexReactClient, expiresAt: number, signal: AbortSignal) {
-  return new Promise<void>((resolve, reject) => {
-    const watch = convex.watchQuery(instagramDevices.status, {});
-    const finish = (settle: () => void) => {
-      unsubscribe();
-      clearTimeout(timer);
-      signal.removeEventListener('abort', onAbort);
-      settle();
-    };
-    const onAbort = () => finish(() => reject(new PairingCancelled()));
-    const timer = setTimeout(
-      () => finish(() => reject(new Error('The pairing code expired. Try again.'))),
-      Math.max(0, expiresAt - Date.now())
-    );
-    const unsubscribe = watch.onUpdate(() => {
-      let status: InstagramDeviceStatus | null | undefined;
-      try {
-        status = watch.localQueryResult();
-      } catch (err) {
-        finish(() => reject(err));
-        return;
-      }
-      if (status?.paired) finish(resolve);
-    });
-    signal.addEventListener('abort', onAbort);
-  });
-}
-
-export class PairingCancelled extends Error {
-  constructor() {
-    super('Pairing cancelled');
-  }
-}
 
 export function isMissingFunction(err: unknown) {
   return err instanceof Error && err.message.includes('Could not find public function');

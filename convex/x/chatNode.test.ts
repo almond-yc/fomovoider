@@ -305,6 +305,32 @@ describe("X Chat passcode", () => {
     expect(filled.lastMessage).toMatchObject({ text: "plain:RVZFTlQtMw==" });
   });
 
+  test("a token refresh by one step of a run doesn't break the next step's X calls", async () => {
+    let refreshToken = "refresh";
+    let generation = 0;
+    const calls = stubX({
+      "POST /2/oauth2/token": (_url, init) => {
+        const sent = new URLSearchParams(String(init?.body)).get("refresh_token");
+        if (sent !== refreshToken) return json({ error: "invalid_request" }, 400);
+        generation++;
+        refreshToken = `refresh-${generation}`;
+        return json({ token_type: "bearer", access_token: `access-${generation}`, refresh_token: refreshToken, expires_in: 7200 });
+      },
+    });
+    const { t, accountId, as } = await setup();
+    await t.action(internal.x.chat.syncAccount, { accountId });
+    await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
+    await t.run(async (ctx) => {
+      const account = await ctx.db.get(accountId);
+      await ctx.db.patch(accountId, { session: { ...account!.session, expiresAt: "2000-01-01T00:00:00.000Z" } as NonNullable<typeof account>["session"] });
+    });
+    await t.action(internal.x.chatNode.decryptConversations, { accountId, conversations: [] });
+    const [conversation] = await t.run((ctx) => ctx.db.query("conversations").collect());
+    expect(conversation.unavailable).toBeUndefined();
+    expect(generation).toBe(1);
+    expect(calls.filter((c) => c.key === "POST /2/oauth2/token")).toHaveLength(1);
+  });
+
   test("messages.send sends X Chat messages encrypted on the server", async () => {
     const calls = stubX();
     const { t, accountId, as } = await setup();

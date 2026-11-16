@@ -13,6 +13,7 @@ import {
 } from "./lib/validators";
 // Connector-owned tables: one import and one spread per connector.
 // See convex/README.md, "Connector-owned tables".
+import { briefTables } from "./brief/schema";
 import { instagramTables } from "./instagram/schema";
 import { xTables } from "./x/schema";
 
@@ -23,7 +24,9 @@ const sharedTables = {
   // Convex Auth's users table plus onboarding. slopDescription is the user's
   // own words for what they don't want in their feed (trimmed, at most
   // MAX_SLOP_DESCRIPTION_LENGTH characters, set by users.setSlop);
-  // onboardedAt (epoch ms) is when they first saved it.
+  // onboardedAt (epoch ms) is when they first saved it. timeZone is the
+  // device's IANA zone (brief.setTimeZone) the Morning Brief runs in; unset
+  // means America/Los_Angeles.
   users: defineTable({
     name: v.optional(v.string()),
     image: v.optional(v.string()),
@@ -34,6 +37,7 @@ const sharedTables = {
     isAnonymous: v.optional(v.boolean()),
     slopDescription: v.optional(v.string()),
     onboardedAt: v.optional(v.number()),
+    timeZone: v.optional(v.string()),
   })
     .index("email", ["email"])
     .index("phone", ["phone"]),
@@ -104,4 +108,5 @@ export default defineSchema({
   ...sharedTables,
   ...xTables,
   ...instagramTables,
+  ...briefTables,
 });

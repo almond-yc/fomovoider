@@ -273,15 +273,15 @@ describe("X Chat passcode", () => {
   });
 
   test("a one-off backfill fills locked chats from its own read cap, not the daily budget", async () => {
-    vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "1");
+    vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "2");
     stubX();
     const { t, accountId, as } = await setup();
     await t.action(internal.x.chat.syncAccount, { accountId });
     await settle(t);
+    expect(await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE })).toEqual({ ok: true });
     await t.run(async (ctx) => {
-      for (const row of await ctx.db.query("x_usage").collect()) await ctx.db.patch(row._id, { used: 1 });
+      for (const row of await ctx.db.query("x_usage").collect()) await ctx.db.patch(row._id, { used: 2 });
     });
-    await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
     await settle(t);
     const [stuck] = await t.run((ctx) => ctx.db.query("conversations").collect());
     expect(stuck.unavailable).toMatchObject({ reason: "locked" });
@@ -290,6 +290,9 @@ describe("X Chat passcode", () => {
     expect(result).toMatchObject({ conversations: 1, decrypted: 1, stillLocked: 0 });
     expect(result.eventsFetched).toBeGreaterThan(0);
     expect(result.eventsFetched).toBeLessThanOrEqual(50);
+    const usage = await t.run((ctx) => ctx.db.query("x_usage").collect());
+    expect(usage.filter((u) => !u.key.startsWith("backfill:")).every((u) => u.used <= 2)).toBe(true);
+    expect(usage.some((u) => u.key.startsWith("backfill:") && u.used > 0)).toBe(true);
     const [filled] = await t.run((ctx) => ctx.db.query("conversations").collect());
     expect(filled.unavailable).toBeUndefined();
     expect(filled.lastMessage).toMatchObject({ text: "plain:RVZFTlQtMw==" });

@@ -10,6 +10,13 @@
 
 import type * as accounts from "../accounts.js";
 import type * as auth from "../auth.js";
+import type * as brief from "../brief.js";
+import type * as brief_crons from "../brief/crons.js";
+import type * as brief_judge from "../brief/judge.js";
+import type * as brief_media from "../brief/media.js";
+import type * as brief_prompt from "../brief/prompt.js";
+import type * as brief_time from "../brief/time.js";
+import type * as brief_workflow from "../brief/workflow.js";
 import type * as chat_connectors from "../chat/connectors.js";
 import type * as conversations from "../conversations.js";
 import type * as crons from "../crons.js";
@@ -54,6 +61,13 @@ import type {
 declare const fullApi: ApiFromModules<{
   accounts: typeof accounts;
   auth: typeof auth;
+  brief: typeof brief;
+  "brief/crons": typeof brief_crons;
+  "brief/judge": typeof brief_judge;
+  "brief/media": typeof brief_media;
+  "brief/prompt": typeof brief_prompt;
+  "brief/time": typeof brief_time;
+  "brief/workflow": typeof brief_workflow;
   "chat/connectors": typeof chat_connectors;
   conversations: typeof conversations;
   crons: typeof crons;
@@ -116,4 +130,7 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  workflow: import("@convex-dev/workflow/_generated/component.js").ComponentApi<"workflow">;
+  briefJudgePool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"briefJudgePool">;
+};

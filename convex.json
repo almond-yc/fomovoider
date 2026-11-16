@@ -1,5 +1,5 @@
 {
   "node": {
-    "externalPackages": ["@xdevplatform/chat-xdk-server", "juicebox-sdk"]
+    "externalPackages": ["@xdevplatform/chat-xdk-server", "juicebox-sdk", "ffmpeg-static"]
   }
 }

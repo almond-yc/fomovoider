@@ -1,7 +1,7 @@
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppState } from "react-native";
 import type { PageControl } from "../refresh";
 import { useInstagramWebView } from "../webview/InstagramWebViewHost";
@@ -40,6 +40,8 @@ export function InstagramDms() {
   // Bumped when the Fomovoider user or their Instagram account changes;
   // queued tasks from before then do nothing.
   const generation = useRef(0);
+  // Bumped when the capture is verified, so queued outbox items start.
+  const [ready, setReady] = useState(0);
 
   const dmApi = useMemo<DmApi>(
     () => ({
@@ -53,7 +55,12 @@ export function InstagramDms() {
 
   const sync = useRef<(trigger: SyncTrigger) => void>(() => undefined);
   const capture = useMemo(
-    () => createDmCapture({ api: dmApi, expectedHandle: () => expected.current, onStale: () => sync.current("realtime") }),
+    () => createDmCapture({
+        api: dmApi,
+        expectedHandle: () => expected.current,
+        onReady: () => setReady((n) => n + 1),
+        onStale: () => sync.current("realtime"),
+      }),
     [dmApi],
   );
   const deps = (page: PageControl): DmTaskDeps => ({ page, capture, api: dmApi, killed: () => killed.current, sleep });
@@ -99,7 +106,7 @@ export function InstagramDms() {
         .catch(() => undefined)
         .finally(() => inFlight.current.delete(outboxId));
     }
-  }, [outbox, status, meId]);
+  }, [outbox, status, meId, ready]);
 
   return null;
 }

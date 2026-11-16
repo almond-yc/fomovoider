@@ -22,7 +22,7 @@ function localDate() {
 // Today in the device's zone (the zone the brief runs in, via
 // brief.setTimeZone), rechecked every minute and when the app comes back, so
 // the screen rolls over at midnight without a database write.
-function useLocalToday() {
+export function useLocalToday() {
   const [today, setToday] = useState(localDate);
   useEffect(() => {
     const check = () => setToday(localDate());

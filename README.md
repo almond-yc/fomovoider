@@ -29,8 +29,9 @@ Fomovoider covers two platforms: X and Instagram.
 
 - **Accounts**: sign up and sign in with email and password, then answer "What's slop for you?" once (editable from the Feed header). Sign in with Apple and Google is written but commented out until OAuth credentials exist.
 - **Connect**: until one platform is connected, the app shows a Connect screen instead of the tabs, with a row for X (X's own sign-in) and one for Instagram (instagram.com's own login page, shown full screen inside the app with a Close button).
-- **Settings** (gear in the native header): each platform's handle, status and last sync, Sync now for X (and for an Instagram account still read by the Mac host agent, which also gets a link to switch to the in-app login), Refresh now for Instagram (showing the outcome with post and story counts, plus a paused line while Instagram refreshes are switched off or paused after a tripwire), Disconnect (which deletes that platform's data from Fomovoider), and Sign out.
-- **Chats tab**: the inbox and a conversation screen, with X conversations and Instagram's Primary inbox (synced while the app is open, with the last 20 messages per chat and realtime messages), sending X and Instagram DMs and replies, and pending or failed delivery shown on each message. Encrypted X Chat conversations are decrypted on the phone after the user unlocks them; Convex only stores ciphertext.
+- **X Chat passcode**: right after X is connected on the Connect screen, the app asks once for the X Chat passcode, after the consent copy, so the server can unlock and sync encrypted X chats. A wrong passcode shows how many tries X has left; Skip for now leaves encrypted chats locked. The passcode is sent to `x.chatNode.setPasscode` and never stored on the phone.
+- **Settings** (gear in the native header): each platform's handle, status and last sync, Sync now for X (and for an Instagram account still read by the Mac host agent, which also gets a link to switch to the in-app login), Refresh now for Instagram (showing the outcome with post and story counts, plus a paused line while Instagram refreshes are switched off or paused after a tripwire), Disconnect (which deletes that platform's data from Fomovoider), and Sign out. Under Twitter, the X Chat passcode line shows Not set, Active or Needs re-entry (with X's reason), with Set or Change and Remove.
+- **Chats tab**: the inbox and a conversation screen, with X conversations and Instagram's Primary inbox (synced while the app is open, with the last 20 messages per chat and realtime messages), sending X and Instagram DMs and replies, and pending or failed delivery shown on each message. Encrypted X Chat conversations are decrypted on the server once the user has entered their X Chat passcode, and show as locked until then.
 - **Feed tab**: the signed-in user's finite feed from Convex (`feed.page`), newest first across platforms, with skeletons while it loads. It ends at "You're all caught up", which also marks where the next session starts. Pull to refresh re-queries and asks each connector with a sync mutation to sync. Posts are marked seen as they scroll into view and opened when you tap the platform icon; long-press a post to save or hide it. Stories and tagged places show quietly on the card. A connected account in trouble (signed out, X credits used up) shows as a one-line notice above the feed. `/feed-preview` renders the same post component with sample data for design work.
 - **Backend** on Convex: Convex Auth with email and password, connected accounts, the shared `posts`, `postStates`, `conversations` and `messages` tables, `feed.page` with the finite cutoff, media copies in Convex file storage, a daily retention cron, and the registration points connectors use for their own tables and crons. See [convex/README.md](convex/README.md).
 - **X connector** (`src/connectors/x/`, `convex/x/`): official X API v2 with OAuth 2.0 PKCE, the code exchanged on the server, a 6-hourly sync of the home feed, mentions and DMs, and DM sends. The shared dev deployment holds real X posts and DMs from a team account.
@@ -86,3 +87,36 @@ npx tsc --noEmit -p convex        # typecheck the backend
 ```
 
 The shared dev deployment only runs main. Deploy it (`npx convex deploy`, authenticated by `CONVEX_DEPLOY_KEY`) only from main, or from a branch just rebased onto main whose PR is about to merge, because a deploy replaces every other team's functions, crons and indexes. Never commit or print `CONVEX_DEPLOY_KEY`. Connector env vars (such as `X_CLIENT_ID`) are set on the Convex deployment; see each connector's README.
+
+## Install on your iPhone
+
+We install with Xcode and a free Apple ID for now; there's no TestFlight yet. You need a Mac, an iPhone, and a USB cable.
+
+1. Install Xcode from the Mac App Store, open it once, and let it install its components.
+2. In Xcode → Settings → Accounts, add your Apple ID. A free Apple ID shows up as a "Personal Team".
+3. A free team can't reuse a bundle ID that belongs to someone else's team, so pick your own. Put it in `.env.local` (gitignored):
+
+   ```bash
+   IOS_BUNDLE_ID=com.<yourname>.fomovoider
+   # Optional: your team ID, if Xcode has more than one team for you
+   # APPLE_TEAM_ID=XXXXXXXXXX
+   ```
+
+   Nico can skip this step, because the default is `com.nicopujia.fomovoider`.
+4. Plug the iPhone into the Mac, unlock it, and tap **Trust** if it asks.
+5. On the iPhone, turn on Settings → Privacy & Security → Developer Mode and restart when it asks. The option only shows up after the phone has been connected to Xcode once.
+6. From the repo, run:
+
+   ```bash
+   npm install
+   npm run ios:device
+   ```
+
+   This regenerates `ios/` from the app config and builds a Release build onto the phone. It talks to the shared dev deployment (`groovy-bobcat-759`), with the X client ID baked in, so it doesn't need Metro or your laptop after install. Pick your phone if it asks for a device, and your Personal Team if it asks for a signing identity.
+7. The first launch is blocked until you trust yourself as a developer: Settings → General → VPN & Device Management → your Apple ID → **Trust**.
+
+Apps signed by a free team expire after 7 days. When the app stops opening, plug in the phone and run `npm run ios:device` again. Your data lives on the server, so nothing is lost. A free team can also have at most 3 sideloaded apps on a phone at once.
+
+X sign-in works with any bundle ID, because X redirects to the `fomovoider://oauth/x` URL scheme, which every build registers whatever its bundle ID is.
+
+`eas.json` already holds a store build profile for when we move to TestFlight.

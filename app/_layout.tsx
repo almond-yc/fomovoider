@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { NAV_THEME, TITLE_FONT } from '@/lib/theme';
 import { api } from '@/convex/_generated/api';
+import { XChatOnboardingContext } from '@/lib/x-chat-passcode';
 import { DM_HOST_PROPS, InstagramDms } from '@/src/instagram/dms/InstagramDms';
 import { InstagramWebViewHost } from '@/src/instagram/webview/InstagramWebViewHost';
 import { ConvexClientProvider } from '@/src/providers/ConvexClientProvider';
@@ -23,7 +24,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useConvexAuth, useQuery } from 'convex/react';
 import { useColorScheme } from 'nativewind';
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Platform, View } from 'react-native';
 
 export { ErrorBoundary } from 'expo-router';
@@ -59,11 +60,14 @@ export default function RootLayout() {
 
 // Signed out: sign up or sign in. Signed in without an answer to "What's slop
 // for you?": onboarding. No connected account: the Connect screen. Otherwise
-// the tabs and Settings.
+// the tabs and Settings. Connecting X from the Connect screen first asks for
+// the X Chat passcode, once.
 function RootNavigator() {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const viewer = useQuery(api.users.viewer, isAuthenticated ? {} : 'skip');
   const ready = !isLoading && (!isAuthenticated || viewer !== undefined);
+  const [xChatStep, setXChatStep] = useState<'idle' | 'connecting' | 'asking' | 'done'>('idle');
+  const xChatOnboarding = useMemo(() => ({ finish: () => setXChatStep('done') }), []);
 
   useEffect(() => {
     if (ready) SplashScreen.hideAsync();
@@ -74,47 +78,60 @@ function RootNavigator() {
   const signedIn = isAuthenticated && viewer !== null;
   const onboarded = viewer?.onboardedAt !== undefined;
   const connected = viewer?.accounts.some((a) => a.status === 'active') ?? false;
+  const xConnected = viewer?.accounts.some((a) => a.platform === 'x' && a.status === 'active') ?? false;
+
+  if (!signedIn && xChatStep !== 'idle') setXChatStep('idle');
+  if (xChatStep === 'idle' && signedIn && onboarded && !connected) setXChatStep('connecting');
+  if (xChatStep === 'connecting' && connected) setXChatStep(xConnected ? 'asking' : 'done');
+  const askXChatPasscode = xChatStep === 'asking';
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Protected guard={!signedIn}>
-        <Stack.Screen name="sign-up" />
-        <Stack.Screen name="sign-in" />
-      </Stack.Protected>
-      <Stack.Protected guard={signedIn && !onboarded}>
-        <Stack.Screen name="onboarding" />
-      </Stack.Protected>
-      <Stack.Protected guard={signedIn && onboarded && !connected}>
-        <Stack.Screen name="connect" />
-      </Stack.Protected>
-      <Stack.Protected guard={signedIn && onboarded && connected}>
-        <Stack.Screen
-          name="(tabs)"
-          options={{
-            headerShown: true,
-            title: 'Fomovoider',
-            headerTitleAlign: 'center',
-            headerShadowVisible: false,
-            headerTitleStyle: { fontFamily: TITLE_FONT, fontSize: 18 },
-            headerRight: () => <HeaderActions />,
-          }}
-        />
-        <Stack.Screen
-          name="settings"
-          options={{
-            headerShown: true,
-            title: 'Settings',
-            headerShadowVisible: false,
-            headerBackButtonDisplayMode: 'minimal',
-            headerTitleStyle: { fontFamily: 'Inter_600SemiBold' },
-          }}
-        />
-        <Stack.Screen name="edit-slop" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="chat/[id]" />
-        <Stack.Screen name="x-chat" />
-      </Stack.Protected>
-      <Stack.Screen name="feed-preview" />
-    </Stack>
+    <XChatOnboardingContext.Provider value={askXChatPasscode ? xChatOnboarding : null}>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Protected guard={!signedIn}>
+          <Stack.Screen name="sign-up" />
+          <Stack.Screen name="sign-in" />
+        </Stack.Protected>
+        <Stack.Protected guard={signedIn && !onboarded}>
+          <Stack.Screen name="onboarding" />
+        </Stack.Protected>
+        <Stack.Protected
+          guard={signedIn && onboarded && !connected}
+          redirectTo={askXChatPasscode ? '/x-chat-passcode' : undefined}>
+          <Stack.Screen name="connect" />
+        </Stack.Protected>
+        <Stack.Protected guard={signedIn && onboarded && connected && !askXChatPasscode}>
+          <Stack.Screen
+            name="(tabs)"
+            options={{
+              headerShown: true,
+              title: 'Fomovoider',
+              headerTitleAlign: 'center',
+              headerShadowVisible: false,
+              headerTitleStyle: { fontFamily: TITLE_FONT, fontSize: 18 },
+              headerRight: () => <HeaderActions />,
+            }}
+          />
+          <Stack.Screen
+            name="settings"
+            options={{
+              headerShown: true,
+              title: 'Settings',
+              headerShadowVisible: false,
+              headerBackButtonDisplayMode: 'minimal',
+              headerTitleStyle: { fontFamily: 'Inter_600SemiBold' },
+            }}
+          />
+          <Stack.Screen name="edit-slop" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="chat/[id]" />
+          <Stack.Screen name="x-chat" />
+        </Stack.Protected>
+        <Stack.Protected guard={signedIn && onboarded && connected}>
+          <Stack.Screen name="x-chat-passcode" />
+        </Stack.Protected>
+        <Stack.Screen name="feed-preview" />
+      </Stack>
+    </XChatOnboardingContext.Provider>
   );
 }
 

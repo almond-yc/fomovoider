@@ -69,32 +69,33 @@ const api = (submitted: DmSubmit[] = []): DmApi => ({
   tripwire: async () => undefined,
 });
 
-function harness(sendResponse: unknown) {
+async function harness(sendResponse: unknown) {
   const fake = fakePage(sendResponse);
   const capture = createDmCapture({ api: api(), expectedHandle: () => VIEWER, onStale: () => undefined, setTimer: (fn, ms) => setTimeout(fn, Math.min(ms, 5)) });
   fake.page.onMessage(capture.handle);
   capture.handle(detailResponse);
+  await capture.flush();
   const deps = { page: fake.page, capture, api: api(), killed: () => false, sleep: async () => undefined, random: () => 0 };
   return { ...fake, deps };
 }
 
 describe("instagram dm delivery", () => {
   test("a send opens the chat from the inbox, types, taps Send once and goes back", async () => {
-    const h = harness({ data: { xig_direct_text_send_with_slide_messaging_response: { message_id: "mid.$1", timestamp_ms: "1794786600000" } } });
+    const h = await harness({ data: { xig_direct_text_send_with_slide_messaging_response: { message_id: "mid.$1", timestamp_ms: "1794786600000" } } });
     const result = await deliver({ outboxId: "o1", kind: "send", threadKey: "123", text: "got it, testing a reply, ignore this" }, h.deps);
     expect(result).toEqual({ ok: true, messageId: "instagram:mid.$1", sentAt: new Date(1794786600000).toISOString() });
     expect(h.calls).toEqual(["tap row", "send got it, testing a reply, ignore this", "back"]);
   });
 
   test("Instagram's error comes back as the send's error, without a second try", async () => {
-    const h = harness(sendError);
+    const h = await harness(sendError);
     const result = await deliver({ outboxId: "o1", kind: "send", threadKey: "123", text: "hi" }, h.deps);
     expect(result).toEqual({ ok: false, error: "Instagram didn't send this message (error 1675030). Open the chat in Instagram to check." });
     expect(h.calls.filter((c) => c.startsWith("send"))).toHaveLength(1);
   });
 
   test("a login page during a send aborts it and reports the tripwire", async () => {
-    const h = harness({});
+    const h = await harness({});
     const tripped: unknown[] = [];
     h.deps.api = { ...h.deps.api, tripwire: async (a) => void tripped.push(a) };
     const original = h.page.evaluate;
@@ -111,7 +112,8 @@ describe("instagram dm delivery", () => {
   test("capture streams the inbox to Convex and flags a sequence gap as stale", async () => {
     const submitted: DmSubmit[] = [];
     let stale = 0;
-    const capture = createDmCapture({ api: api(submitted), expectedHandle: () => VIEWER, onStale: () => stale++, setTimer: (fn) => setTimeout(fn, 0) });
+    let ready = 0;
+    const capture = createDmCapture({ api: api(submitted), expectedHandle: () => VIEWER, onReady: () => ready++, onStale: () => stale++, setTimer: (fn) => setTimeout(fn, 0) });
     capture.handle({ type: "ig:response", operation: "PolarisDirectInboxMobileQuery", status: 200, body: JSON.stringify(inbox) });
     await capture.flush();
     expect(submitted).toEqual([]);
@@ -119,6 +121,8 @@ describe("instagram dm delivery", () => {
     await capture.flush();
     expect(submitted[0].threads).toHaveLength(4);
     expect(submitted[0].viewer.handle).toBe(VIEWER);
+    // The outbox starts once Convex accepted a verified batch.
+    expect(ready).toBe(1);
     const delta = (seq: number) => ({
       type: "ig:ws" as const,
       payloads: [JSON.stringify([{ data: { slide_delta_processor: [{ __typename: "SlideUQPPCreateReaction", uq_seq_id: String(seq) }] } }])],
@@ -130,7 +134,7 @@ describe("instagram dm delivery", () => {
   });
 
   test("a challenge page after Send still pauses the device", async () => {
-    const h = harness({ data: { xig_direct_text_send_with_slide_messaging_response: { message_id: "mid.$1" } } });
+    const h = await harness({ data: { xig_direct_text_send_with_slide_messaging_response: { message_id: "mid.$1" } } });
     const tripped: unknown[] = [];
     h.deps.api = { ...h.deps.api, tripwire: async (a) => void tripped.push(a) };
     const original = h.page.evaluate;
@@ -164,7 +168,7 @@ describe("instagram dm delivery", () => {
     expect(submitted).toEqual([]);
     expect(capture.verified()).toBe(false);
 
-    const h = harness({ data: { xig_direct_text_send_with_slide_messaging_response: { message_id: "mid.$1" } } });
+    const h = await harness({ data: { xig_direct_text_send_with_slide_messaging_response: { message_id: "mid.$1" } } });
     const result = await deliver({ outboxId: "o1", kind: "send", threadKey: "123", text: "hi" }, { ...h.deps, capture });
     expect(result.ok).toBe(false);
     expect(h.calls).toEqual([]);
@@ -173,11 +177,34 @@ describe("instagram dm delivery", () => {
     expected = VIEWER;
     capture.handle({ type: "ig:response", operation: "PolarisDirectInboxMobileQuery", status: 200, body: JSON.stringify(inbox) });
     capture.handle(detailResponse);
+    await capture.flush();
     expect(capture.verified()).toBe(true);
+    const sentAsA = submitted.length;
+    capture.handle({ type: "ig:response", operation: "PolarisDirectInboxMobileQuery", status: 200, body: JSON.stringify(inbox) });
     expected = "user_b";
     capture.reset();
     await capture.flush();
-    expect(submitted).toEqual([]);
+    expect(submitted).toHaveLength(sentAsA);
+    expect(capture.verified()).toBe(false);
+  });
+
+  test("a submit that finishes after a reset doesn't mark the next viewer ready", async () => {
+    let release: () => void = () => undefined;
+    let ready = 0;
+    const capture = createDmCapture({
+      api: { ...api(), submit: () => new Promise<void>((r) => (release = r)) },
+      expectedHandle: () => VIEWER,
+      onReady: () => ready++,
+      onStale: () => undefined,
+      setTimer: () => undefined,
+    });
+    capture.handle({ type: "ig:response", operation: "PolarisDirectInboxMobileQuery", status: 200, body: JSON.stringify(inbox) });
+    capture.handle(detailResponse);
+    const flushing = capture.flush();
+    capture.reset();
+    release();
+    await flushing;
+    expect(ready).toBe(0);
     expect(capture.verified()).toBe(false);
   });
 });

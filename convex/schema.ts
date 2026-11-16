@@ -57,7 +57,8 @@ const sharedTables = {
     lastSyncedAt: v.optional(v.number()),
   })
     .index("by_userId_and_platform", ["userId", "platform"])
-    .index("by_platform", ["platform"]),
+    .index("by_platform", ["platform"])
+    .index("by_meId", ["me.id"]),
 
   // Per user and platform: the connector's opaque cursor and caughtUp flag
   // from the last sync, and seenUntil, the createdAt (epoch ms) of the newest post the

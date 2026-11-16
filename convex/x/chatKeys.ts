@@ -90,10 +90,17 @@ export const keysActive = internalQuery({
   returns: v.boolean(),
   handler: async (ctx, { accountId }) => {
     const account = await ctx.db.get(accountId);
-    const row = await keysOf(ctx, accountId);
-    return Boolean(account?.me && row?.status === "active" && row.xUserId === account.me.id);
+    return account ? await hasActiveChatKeys(ctx, account) : false;
   },
 });
+
+// Whether the server holds working X Chat keys for this account, so it can
+// decrypt and send its X Chat conversations (see chat/connectors sendBlocker).
+export async function hasActiveChatKeys(ctx: QueryCtx, account: Doc<"connectedAccounts">): Promise<boolean> {
+  if (account.platform !== "x" || !account.me) return false;
+  const row = await keysOf(ctx, account._id);
+  return row?.status === "active" && row.xUserId === account.me.id;
+}
 
 export const markInvalid = internalMutation({
   args: { accountId: v.id("connectedAccounts"), reason: v.string() },

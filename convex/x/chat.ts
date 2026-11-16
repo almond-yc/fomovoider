@@ -296,6 +296,11 @@ export const isXChat = internalQuery({
   handler: async (ctx, { accountId, conversationId }) => {
     const account = await ctx.db.get(accountId);
     if (!account) return false;
+    const row = await ctx.db
+      .query("conversations")
+      .withIndex("by_userId_and_id", (q) => q.eq("userId", account.userId).eq("id", conversationId))
+      .unique();
+    if (row?.platform === "x" && row.unavailable?.reason === "locked") return true;
     const cursor = await ctx.db
       .query("x_chat_cursors")
       .withIndex("by_userId_and_conversationId", (q) => q.eq("userId", account.userId).eq("conversationId", conversationId))

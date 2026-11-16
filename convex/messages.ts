@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, query } from "./_generated/server";
 import { CHAT_PLATFORMS, sendBlocker } from "./chat/connectors";
+import { hasActiveChatKeys } from "./x/chatKeys";
 import { requireUserId } from "./lib/auth";
 import { vConnectorError, vMessage } from "./lib/validators";
 import type { ConnectorError } from "../src/connectors/types";
@@ -36,7 +37,7 @@ export const target = internalQuery({
   handler: async (
     ctx,
     { userId, conversationId },
-  ): Promise<{ conversation: Doc<"conversations">; account: Doc<"connectedAccounts"> | null }> => {
+  ): Promise<{ conversation: Doc<"conversations">; account: Doc<"connectedAccounts"> | null; serverChatKeys: boolean }> => {
     const conversation = await ctx.db
       .query("conversations")
       .withIndex("by_userId_and_id", (q) => q.eq("userId", userId).eq("id", conversationId))
@@ -48,7 +49,7 @@ export const target = internalQuery({
         q.eq("userId", userId).eq("platform", conversation.platform),
       )
       .unique();
-    return { conversation, account };
+    return { conversation, account, serverChatKeys: account ? await hasActiveChatKeys(ctx, account) : false };
   },
 });
 
@@ -89,8 +90,8 @@ export const send = action({
   handler: async (ctx, { conversationId, text }): Promise<SendResult> => {
     const userId = await requireUserId(ctx);
     if (!text.trim()) return { ok: false as const, error: { kind: "platform" as const, message: "Message is empty" } };
-    const { conversation, account } = await ctx.runQuery(internal.messages.target, { userId, conversationId });
-    const blocked = sendBlocker(conversation, account);
+    const { conversation, account, serverChatKeys } = await ctx.runQuery(internal.messages.target, { userId, conversationId });
+    const blocked = sendBlocker(conversation, account, serverChatKeys);
     if (blocked || !account) return { ok: false as const, error: blocked ?? { kind: "session_expired" as const } };
 
     try {

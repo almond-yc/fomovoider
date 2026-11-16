@@ -2,6 +2,7 @@ import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { sendBlocker } from "./chat/connectors";
+import { hasActiveChatKeys } from "./x/chatKeys";
 import { requireUserId } from "./lib/auth";
 
 // The unified inbox: conversations from every platform, most recent first.
@@ -35,6 +36,7 @@ export const get = query({
         q.eq("userId", userId).eq("platform", conversation.platform),
       )
       .unique();
-    return { ...conversation, sendBlocked: sendBlocker(conversation, account) ?? undefined };
+    const serverChatKeys = account ? await hasActiveChatKeys(ctx, account) : false;
+    return { ...conversation, sendBlocked: sendBlocker(conversation, account, serverChatKeys) ?? undefined };
   },
 });

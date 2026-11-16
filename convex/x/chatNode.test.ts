@@ -252,6 +252,26 @@ describe("X Chat passcode", () => {
     expect(calls.filter((c) => c.key.startsWith("POST"))).toEqual([]);
   });
 
+  test("a still-locked X Chat row can be sent to once keys are saved, and not before", async () => {
+    const calls = stubX();
+    const { t, accountId, as } = await setup();
+    await t.action(internal.x.chat.syncAccount, { accountId });
+    await settle(t);
+    const locked = await as.query(api.conversations.get, { conversationId: ONE_TO_ONE });
+    expect(locked?.sendBlocked).toEqual({ kind: "unsupported", capability: "sendMessage" });
+    expect(await as.action(api.messages.send, { conversationId: ONE_TO_ONE, text: "hola" })).toMatchObject({ ok: false });
+
+    await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("conversations").first();
+      await ctx.db.patch(row!._id, { unavailable: { reason: "locked" } });
+    });
+    expect((await as.query(api.conversations.get, { conversationId: ONE_TO_ONE }))?.sendBlocked).toBeUndefined();
+    expect(await as.action(api.messages.send, { conversationId: ONE_TO_ONE, text: "hola" })).toMatchObject({ ok: true });
+    expect(xdk.sent).toEqual([{ conversationId: "sdk-1", text: "hola" }]);
+    expect(calls.filter((c) => c.key.startsWith("POST /2/dm_conversations"))).toEqual([]);
+  });
+
   test("messages.send sends X Chat messages encrypted on the server", async () => {
     const calls = stubX();
     const { t, accountId, as } = await setup();

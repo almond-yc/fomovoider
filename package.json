@@ -65,6 +65,7 @@
     "babel-preset-expo": "^58.0.25",
     "convex-test": "^0.0.71",
     "esbuild": "^0.27.0",
+    "patch-package": "^8.0.1",
     "prettier-plugin-tailwindcss": "^0.5.14",
     "tailwindcss": "^3.4.19",
     "tsx": "^4.23.15",
@@ -80,7 +81,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "x:smoke": "tsx scripts/x-live-smoke.mjs",
-    "x:chat-engine": "node scripts/build-xchat-engine.mjs"
+    "x:chat-engine": "node scripts/build-xchat-engine.mjs",
+    "postinstall": "patch-package"
   },
   "private": true,
   "packageManager": "pnpm@10.34.5+sha512.a4ee05f2f73658255bd6a89859c065a45c28a57daefae2c893a168ee2b73168c37b91e83e57ea67654ad03f03031746430e8bce38e362e042605fb8abc80192e"

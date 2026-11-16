@@ -159,6 +159,7 @@
         const value = document.getElementById('preference').value.trim();
         if (!value) return announce('Tell us what to filter, or choose a preset.');
         state.preference = value;
+        state.showAll = false;
         navigate('loading');
         timer = setTimeout(() => navigate('feed'), 700);
       }

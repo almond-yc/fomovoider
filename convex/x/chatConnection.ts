@@ -21,7 +21,11 @@ export function connectXChat(ctx: ActionCtx, account: Doc<"connectedAccounts">, 
   const usage = convexUsageStore(ctx);
   const runKey = (key: string) => `backfill:${backfill?.runId}:${key.replace(/:\d{4}-\d{2}-\d{2}$/, "")}`;
   const client = new XChatClient({
-    config: xConfigFromEnv(backfill ? { ...process.env, X_DAILY_CHAT_EVENT_READ_BUDGET: String(backfill.maxReads) } : process.env),
+    config: xConfigFromEnv(
+      backfill
+        ? new Proxy(process.env, { get: (env, name) => (name === "X_DAILY_CHAT_EVENT_READ_BUDGET" ? String(backfill.maxReads) : env[name as string]) })
+        : process.env,
+    ),
     usage: backfill
       ? {
           used: (key) => usage.used(runKey(key)),

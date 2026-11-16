@@ -292,7 +292,9 @@ describe("X Chat passcode", () => {
     expect(result.eventsFetched).toBeLessThanOrEqual(50);
     const usage = await t.run((ctx) => ctx.db.query("x_usage").collect());
     expect(usage.filter((u) => !u.key.startsWith("backfill:")).every((u) => u.used <= 2)).toBe(true);
-    expect(usage.some((u) => u.key.startsWith("backfill:") && u.used > 0)).toBe(true);
+    const runCounters = usage.filter((u) => u.key.startsWith("backfill:"));
+    expect(runCounters.some((u) => u.used > 0)).toBe(true);
+    expect(runCounters.every((u) => !/\d{4}-\d{2}-\d{2}/.test(u.key))).toBe(true);
     const [filled] = await t.run((ctx) => ctx.db.query("conversations").collect());
     expect(filled.unavailable).toBeUndefined();
     expect(filled.lastMessage).toMatchObject({ text: "plain:RVZFTlQtMw==" });

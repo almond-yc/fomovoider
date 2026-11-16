@@ -19,13 +19,14 @@ export function connectXChat(ctx: ActionCtx, account: Doc<"connectedAccounts">, 
   let saving: Promise<unknown> = Promise.resolve();
   let sessionVersion = account.sessionVersion ?? 0;
   const usage = convexUsageStore(ctx);
+  const runKey = (key: string) => `backfill:${backfill?.runId}:${key.replace(/:\d{4}-\d{2}-\d{2}$/, "")}`;
   const client = new XChatClient({
     config: xConfigFromEnv(backfill ? { ...process.env, X_DAILY_CHAT_EVENT_READ_BUDGET: String(backfill.maxReads) } : process.env),
     usage: backfill
       ? {
-          used: (key) => usage.used(`backfill:${backfill.runId}:${key}`),
-          reserve: (key, amount, limit) => usage.reserve(`backfill:${backfill.runId}:${key}`, amount, limit),
-          release: (key, amount) => usage.release(`backfill:${backfill.runId}:${key}`, amount),
+          used: (key) => usage.used(runKey(key)),
+          reserve: (key, amount, limit) => usage.reserve(runKey(key), amount, limit),
+          release: (key, amount) => usage.release(runKey(key), amount),
         }
       : usage,
     onSessionRefreshed: (next) => {

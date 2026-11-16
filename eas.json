@@ -1,0 +1,19 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "production": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_CONVEX_URL": "https://groovy-bobcat-759.convex.cloud",
+        "EXPO_PUBLIC_X_CLIENT_ID": "TEw0S0V4ams3akYzeDMxa2sxdlM6MTpjaQ"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

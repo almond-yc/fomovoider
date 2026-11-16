@@ -86,3 +86,36 @@ npx tsc --noEmit -p convex        # typecheck the backend
 ```
 
 The shared dev deployment only runs main. Deploy it (`npx convex deploy`, authenticated by `CONVEX_DEPLOY_KEY`) only from main, or from a branch just rebased onto main whose PR is about to merge, because a deploy replaces every other team's functions, crons and indexes. Never commit or print `CONVEX_DEPLOY_KEY`. Connector env vars (such as `X_CLIENT_ID`) are set on the Convex deployment; see each connector's README.
+
+## Install on your iPhone
+
+We install with Xcode and a free Apple ID for now; there's no TestFlight yet. You need a Mac, an iPhone, and a USB cable.
+
+1. Install Xcode from the Mac App Store, open it once, and let it install its components.
+2. In Xcode → Settings → Accounts, add your Apple ID. A free Apple ID shows up as a "Personal Team".
+3. A free team can't reuse a bundle ID that belongs to someone else's team, so pick your own. Put it in `.env.local` (gitignored):
+
+   ```bash
+   IOS_BUNDLE_ID=com.<yourname>.fomovoider
+   # Optional: your team ID, if Xcode has more than one team for you
+   # APPLE_TEAM_ID=XXXXXXXXXX
+   ```
+
+   Nico can skip this step, because the default is `com.nicopujia.fomovoider`.
+4. Plug the iPhone into the Mac, unlock it, and tap **Trust** if it asks.
+5. On the iPhone, turn on Settings → Privacy & Security → Developer Mode and restart when it asks. The option only shows up after the phone has been connected to Xcode once.
+6. From the repo, run:
+
+   ```bash
+   npm install
+   npm run ios:device
+   ```
+
+   This regenerates `ios/` from the app config and builds a Release build onto the phone. It talks to the shared dev deployment (`groovy-bobcat-759`), with the X client ID baked in, so it doesn't need Metro or your laptop after install. Pick your phone if it asks for a device, and your Personal Team if it asks for a signing identity.
+7. The first launch is blocked until you trust yourself as a developer: Settings → General → VPN & Device Management → your Apple ID → **Trust**.
+
+Apps signed by a free team expire after 7 days. When the app stops opening, plug in the phone and run `npm run ios:device` again. Your data lives on the server, so nothing is lost. A free team can also have at most 3 sideloaded apps on a phone at once.
+
+X sign-in works with any bundle ID, because X redirects to the `fomovoider://oauth/x` URL scheme, which every build registers whatever its bundle ID is.
+
+`eas.json` already holds a store build profile for when we move to TestFlight.

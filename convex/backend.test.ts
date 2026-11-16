@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import type { FunctionReturnType } from "convex/server";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -319,6 +320,42 @@ describe("feed", () => {
     const alice = await signUp();
     await connect(alice, "x");
     expect((await alice.as.query(api.feed.page, page)).caughtUp).toBe(false);
+  });
+
+  test("pages through 150+ posts while seen marks re-run earlier pages", async () => {
+    const { alice, x, ig, upsert } = await seed();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-11-10T00:00:00Z"));
+    const story = { format: "story" as const, expiresAt: "2026-11-20T00:00:00Z" };
+    for (let n = 0; n < 160; n += 20) {
+      await upsert(x, Array.from({ length: 10 }, (_, i) => post("x", n + 2 * i, story)));
+      await upsert(ig, Array.from({ length: 10 }, (_, i) => post("instagram", n + 2 * i + 1)));
+    }
+    const loaded: { cursor: string | null; continueCursor: string }[] = [];
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (;;) {
+      const result: FunctionReturnType<typeof api.feed.page> = await alice.as.query(api.feed.page, {
+        paginationOpts: { numItems: 20, cursor },
+      });
+      loaded.push({ cursor, continueCursor: result.continueCursor });
+      seen.push(...ids(result));
+      await alice.as.mutation(api.postStates.markSeenMany, { postIds: result.page.map((p) => p._id) });
+      vi.setSystemTime(Date.now() + 1_000);
+      // usePaginatedQuery keeps every loaded page subscribed; a seen mark
+      // re-runs them, and each must still accept its cursor.
+      for (const earlier of loaded) {
+        const rerun = await alice.as.query(api.feed.page, {
+          paginationOpts: { numItems: 20, cursor: earlier.cursor },
+        });
+        expect(rerun.continueCursor).toBe(earlier.continueCursor);
+      }
+      if (result.isDone) break;
+      cursor = result.continueCursor;
+    }
+    expect(seen).toHaveLength(160);
+    expect(new Set(seen).size).toBe(160);
+    expect(loaded.length).toBeGreaterThanOrEqual(8);
   });
 
   test("markCaughtUp never moves the caught-up point backwards", async () => {

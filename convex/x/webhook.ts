@@ -1,6 +1,5 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import type { Doc } from "../_generated/dataModel";
 import { type MutationCtx, httpAction, internalAction, internalMutation, internalQuery } from "../_generated/server";
 import { LOCKED } from "../../src/connectors/x/chat";
 import { vPerson } from "../lib/validators";
@@ -57,8 +56,10 @@ export const handle = httpAction(async (ctx, request) => {
   return new Response(null, { status: 200 });
 });
 
-// Drops redeliveries, routes each event to the accounts of its X user, counts
-// billed events against the daily cap, and schedules the work.
+// Drops redeliveries, routes each event to every active account holding its
+// X user (subscriptions belong to the X user, so an account connected after
+// them still gets its events), counts billed events against the daily cap,
+// and schedules the work.
 export const accept = internalMutation({
   args: { events: v.array(v.any()) },
   returns: v.null(),
@@ -70,30 +71,29 @@ export const accept = internalMutation({
       await ctx.db.insert("x_webhook_events", { eventId: event.event_uuid, receivedAt: Date.now() });
       const xUserId = activityUserId(event);
       if (!xUserId) continue;
-      const rows = await ctx.db.query("x_webhook_accounts").withIndex("by_xUserId", (q) => q.eq("xUserId", xUserId)).collect();
+      const accounts = (await ctx.db.query("connectedAccounts").withIndex("by_meId", (q) => q.eq("me.id", `x:${xUserId}`)).collect()).filter(
+        (account) => account.platform === "x" && account.status === "active",
+      );
       // A row only counts while its account still holds this X identity; a
       // reconnect to another identity leaves a stale row until ensureAll.
-      const owned: { row: Doc<"x_webhook_accounts">; account: Doc<"connectedAccounts"> }[] = [];
-      for (const row of rows) {
-        const account = await ctx.db.get(row.accountId);
-        if (account?.me?.id === `x:${xUserId}`) owned.push({ row, account });
-      }
+      const rows = (await ctx.db.query("x_webhook_accounts").withIndex("by_xUserId", (q) => q.eq("xUserId", xUserId)).collect()).filter((row) =>
+        accounts.some((account) => account._id === row.accountId),
+      );
       if (event.event_type === "oauth.revoke") {
-        for (const { row, account } of owned) {
-          await ctx.db.patch(account._id, { status: "expired", lastError: { kind: "session_expired" } });
-          await ctx.db.delete(row._id);
-        }
+        for (const account of accounts) await ctx.db.patch(account._id, { status: "expired", lastError: { kind: "session_expired" } });
+        for (const row of rows) await ctx.db.delete(row._id);
         continue;
       }
-      const active = owned.filter(({ account }) => account.status === "active").map(({ row }) => row);
-      if (!active.length) continue;
+      if (!accounts.length) continue;
       const used = BILLED_EVENTS.has(event.event_type) ? await countEvent(ctx, xUserId) : 0;
-      for (const row of active) {
+      for (const row of rows) {
         if (used >= cap && row.pausedUntil === undefined) {
           await ctx.db.patch(row._id, { pausedUntil: nextUtcDay() });
           await ctx.scheduler.runAfter(0, internal.x.webhook.pause, { accountId: row.accountId });
         }
-        await ctx.scheduler.runAfter(0, internal.x.webhook.processEvent, { accountId: row.accountId, xUserId, event });
+      }
+      for (const account of accounts) {
+        await ctx.scheduler.runAfter(0, internal.x.webhook.processEvent, { accountId: account._id, xUserId, event });
       }
     }
     return null;

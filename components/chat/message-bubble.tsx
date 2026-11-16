@@ -12,7 +12,7 @@ export type PendingMessage = {
   text: string;
   status: 'sending' | 'failed';
   error?: string;
-  sentId?: string;
+  sent?: Pick<ChatMessage, 'id' | 'text' | 'sentAt'>;
 };
 
 function Bubble({

@@ -37,12 +37,14 @@ function message(error: unknown) {
 }
 
 // Creates the day's run and starts its workflow, once per user and date.
-// Returns null when that date already has a run.
+// Returns null when that date already has a run. A rerun passes the replaced
+// run's since so it selects from the same window.
 export async function startBrief(
   ctx: MutationCtx,
   userId: Id<"users">,
   date: string,
   timeZone: string,
+  since?: number,
 ): Promise<Id<"brief_runs"> | null> {
   const existing = await ctx.db
     .query("brief_runs")
@@ -55,6 +57,7 @@ export async function startBrief(
     timeZone,
     status: "collecting",
     startedAt: Date.now(),
+    since,
     pending: 0,
     counts: { selected: 0, kept: 0, filtered: 0, failed: 0 },
     skipped: [],
@@ -195,8 +198,8 @@ async function postFacts(ctx: MutationCtx | Parameters<typeof resolvePost>[0], p
     .first();
 }
 
-// Picks the posts this brief judges: created since the previous brief's
-// cutoff (the last 24 h for the first one), with no verdict yet, not expired
+// Picks the posts this brief judges: created since the run's own since (set
+// on a rerun), else the previous brief's cutoff (the last 24 h for the first one), with no verdict yet, not expired
 // and not hidden, newest first, at most MAX_POSTS_PER_BRIEF. Sponsored posts
 // get an "ad" verdict here without a model call. The rest go to the judge
 // pool; returns how many.
@@ -213,7 +216,7 @@ export const select = internalMutation({
       .order("desc")
       .filter((q) => q.neq(q.field("cutoff"), undefined))
       .first();
-    const since = previous?.cutoff ?? now - FIRST_BRIEF_WINDOW_MS;
+    const since = run.since ?? previous?.cutoff ?? now - FIRST_BRIEF_WINDOW_MS;
     const toJudge: Id<"posts">[] = [];
     let selected = 0;
     const posts = ctx.db

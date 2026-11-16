@@ -24,6 +24,16 @@ export const CHAT_PLATFORMS: Record<string, ChatPlatform> = {
     send: (ctx, account, conversationId, text) =>
       ctx.runAction(internal.x.send.message, { accountId: account._id, conversationId, text }),
   },
+  // Stores the message as pending and queues it for the phone, which sends it
+  // through instagram.com and flips it to sent or failed (instagram/send.ts).
+  instagram: {
+    capabilities: { feed: true, chats: true, sendMessage: true, sendMedia: false, reply: false },
+    send: (ctx, account, conversationId, text) =>
+      ctx.runMutation(internal.instagram.send.message, { accountId: account._id, conversationId, text }),
+    markRead: async (ctx, account, conversationId) => {
+      await ctx.runMutation(internal.instagram.send.markRead, { accountId: account._id, conversationId });
+    },
+  },
 };
 
 // Why a message can't be sent to this conversation right now, or null when it can.

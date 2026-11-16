@@ -69,7 +69,18 @@ function safariUserAgent() {
 const GOTO_TIMEOUT_MS = 20_000;
 const EVALUATE_TIMEOUT_MS = 30_000;
 
-export function InstagramWebViewHost({ children, operations = [] }: { children: ReactNode; operations?: string[] }) {
+export function InstagramWebViewHost({
+  children,
+  operations = [],
+  scripts = [],
+}: {
+  children: ReactNode;
+  operations?: string[];
+  // Extra scripts injected before the page's own, after the capture hook
+  // (the DM plug-in's WebSocket listener). They post to ReactNativeWebView
+  // and their messages reach onMessage listeners.
+  scripts?: string[];
+}) {
   const { isAuthenticated } = useConvexAuth();
   const state = useQuery(api.instagram.webview.state, isAuthenticated ? {} : "skip");
   const connect = useMutation(api.instagram.webview.connect);
@@ -104,8 +115,8 @@ export function InstagramWebViewHost({ children, operations = [] }: { children: 
 
   const hookKey = useMemo(() => "_" + Math.random().toString(36).slice(2, 10), []);
   const hookJs = useMemo(
-    () => captureHookJs([...new Set([...FEED_OPERATIONS, ...operations])], hookKey),
-    [operations, hookKey],
+    () => [captureHookJs([...new Set([...FEED_OPERATIONS, ...operations])], hookKey), ...scripts].join("\n"),
+    [operations, scripts, hookKey],
   );
   // The web view starts blank for a connected user (a refresh navigates it)
   // and on instagram.com's login page for the login screen. Set once, so the

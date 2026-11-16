@@ -7,6 +7,7 @@ import { Icon } from '@/components/ui/icon';
 import { NAV_THEME, TITLE_FONT } from '@/lib/theme';
 import { api } from '@/convex/_generated/api';
 import { XChatOnboardingContext } from '@/lib/x-chat-passcode';
+import { DM_HOST_PROPS, InstagramDms } from '@/src/instagram/dms/InstagramDms';
 import { InstagramWebViewHost } from '@/src/instagram/webview/InstagramWebViewHost';
 import { ConvexClientProvider } from '@/src/providers/ConvexClientProvider';
 import {
@@ -45,7 +46,8 @@ export default function RootLayout() {
     <ConvexClientProvider>
       <ThemeProvider value={NAV_THEME[scheme]}>
         <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-        <InstagramWebViewHost>
+        <InstagramWebViewHost {...DM_HOST_PROPS}>
+          <InstagramDms />
           <ChatProviders>
             <RootNavigator />
           </ChatProviders>

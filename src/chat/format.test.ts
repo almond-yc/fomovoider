@@ -98,11 +98,33 @@ describe("copy", () => {
 });
 
 describe("optimistic handover", () => {
+  type P = { key: string; sent?: { id: string; text: string; sentAt: number } };
+  const mine = (id: string, text: string, sentAt: number) => ({ ...message(id, sentAt), isMine: true, text });
+
   test("a sent bubble stays until its stored row arrives, then only the row shows", () => {
-    const sending: { key: string; sentId?: string } = { key: "p1" };
-    const accepted = { key: "p2", sentId: "x:m2" };
+    const sending: P = { key: "p1" };
+    const accepted: P = { key: "p2", sent: { id: "x:m2", text: "hi", sentAt: NOW } };
     expect(unconfirmedPending([sending, accepted], null)).toEqual([sending, accepted]);
     expect(unconfirmedPending([sending, accepted], [message("x:m1", NOW)])).toEqual([sending, accepted]);
-    expect(unconfirmedPending([sending, accepted], [message("x:m2", NOW), message("x:m1", NOW)])).toEqual([sending]);
+    expect(unconfirmedPending([sending, accepted], [mine("x:m2", "hi", NOW), message("x:m1", NOW)])).toEqual([sending]);
+  });
+
+  test("a row renamed on delivery before the list showed it still takes over the bubble", () => {
+    const accepted: P = { key: "p1", sent: { id: "instagram:local.1", text: "on my way", sentAt: NOW } };
+    const delivered = mine("instagram:mid.$sent", "on my way", NOW + 2_000);
+    expect(unconfirmedPending([accepted], [delivered])).toEqual([]);
+    expect(unconfirmedPending([accepted], [{ ...delivered, sentAt: NOW - 3_000 }])).toEqual([]);
+  });
+
+  test("renamed matching skips other people's rows, older sends and rows another bubble matched", () => {
+    const first: P = { key: "p1", sent: { id: "instagram:local.1", text: "ok", sentAt: NOW } };
+    const second: P = { key: "p2", sent: { id: "instagram:local.2", text: "ok", sentAt: NOW + 1_000 } };
+    expect(unconfirmedPending([first], [{ ...message("instagram:theirs", NOW + 1_000), text: "ok" }])).toEqual([first]);
+    expect(unconfirmedPending([first], [mine("instagram:old", "ok", NOW - 60_000)])).toEqual([first]);
+    expect(unconfirmedPending([first], [mine("instagram:mid.$a", "ok!", NOW + 1_000)])).toEqual([first]);
+    expect(unconfirmedPending([first, second], [mine("instagram:mid.$a", "ok", NOW + 2_000)])).toEqual([second]);
+    expect(
+      unconfirmedPending([first, second], [mine("instagram:local.2", "ok", NOW + 1_000), mine("instagram:mid.$a", "ok", NOW + 2_000)]),
+    ).toEqual([]);
   });
 });

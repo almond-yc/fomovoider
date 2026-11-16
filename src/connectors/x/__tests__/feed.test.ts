@@ -67,7 +67,7 @@ describe("feed", () => {
     expect(page.caughtUp).toBe(false);
   });
 
-  it("a pass cut short keeps its place, and the next run finishes it and reports caught up", async () => {
+  it("a pass cut short keeps its place; the next run finishes it, and a fresh pass above it reports caught up", async () => {
     const { connector, x, session } = setup();
     x.on("GET", MENTIONS, { body: empty });
     x.on("GET", HOME, sliced("home-timeline"));
@@ -83,8 +83,15 @@ describe("feed", () => {
     const resumed = next.x.callsTo(HOME)[0]!.url.searchParams;
     expect(resumed.get("pagination_token")).toBe("7140dibdnow9c7btw421dyz6jism75z99gyxd8egarsc4");
     expect(resumed.get("since_id")).toBe("1");
-    expect(second.caughtUp).toBe(true);
+    expect(second.caughtUp).toBe(false);
     expect(second.cursor).toBe("x1|1857000000000000006|1|");
+
+    const last = setup();
+    last.x.on("GET", MENTIONS, { body: empty });
+    last.x.on("GET", HOME, { body: empty });
+    const third = await last.connector.feed(last.session, { since: second.cursor, limit: 10 });
+    expect(last.x.callsTo(HOME)[0]!.url.searchParams.get("since_id")).toBe("1857000000000000006");
+    expect(third.caughtUp).toBe(true);
   });
 
   it("a stream the budget stopped before its first page stays where it was", async () => {

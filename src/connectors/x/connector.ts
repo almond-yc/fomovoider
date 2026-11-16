@@ -197,7 +197,10 @@ export class XConnector implements Connector {
     const [mentions, home] = streams as [FeedStream, FeedStream];
     // A finished stream moves its since_id to the pass's newest post; an
     // unfinished one keeps it and saves where to continue. caughtUp only when
-    // both streams have read everything new.
+    // both streams have read everything new: a pass resumed from the cursor
+    // reads toward older posts only, so anything posted above it since is
+    // unread until the next run's fresh pass, and the run isn't caught up.
+    const resumed = Boolean(since.homeToken || since.mentionsToken);
     return {
       items: sorted,
       cursor: formatFeedCursor({
@@ -207,7 +210,7 @@ export class XConnector implements Connector {
         ...(home.complete ? {} : { homeToken: home.token, homeNewest: home.newest }),
         ...(mentions.complete ? {} : { mentionsToken: mentions.token, mentionsNewest: mentions.newest }),
       }),
-      caughtUp: streams.every((s) => s.complete),
+      caughtUp: !resumed && streams.every((s) => s.complete),
     };
   }
 

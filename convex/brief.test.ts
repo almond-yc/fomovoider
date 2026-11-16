@@ -186,6 +186,30 @@ describe("brief.workflow.sources", () => {
   });
 });
 
+describe("brief.workflow.xSyncFailure", () => {
+  test("reports an X sync that recorded an error or never finished during the run", async () => {
+    const t = setup();
+    const userId = await addUser(t);
+    const runId = await addRun(t, userId);
+    const accountId = await t.run((ctx) =>
+      ctx.db.insert("connectedAccounts", {
+        userId,
+        platform: "x",
+        session: { platform: "x", kind: "oauth", accessToken: "t" },
+        status: "error",
+        lastError: { kind: "network" },
+        lastSyncedAt: Date.now() - DAY,
+      }),
+    );
+    const failure = () => t.query(internal.brief.workflow.xSyncFailure, { runId, accountId });
+    expect(await failure()).toBe("sync failed: network");
+    await t.run((ctx) => ctx.db.patch(accountId, { status: "active", lastError: undefined }));
+    expect(await failure()).toBe("sync didn't complete");
+    await t.run((ctx) => ctx.db.patch(accountId, { lastSyncedAt: Date.now() + 1000 }));
+    expect(await failure()).toBeNull();
+  });
+});
+
 describe("brief.workflow.select", () => {
   test("takes unjudged, unexpired, unhidden posts from the last 24 h, newest first, and drops sponsored ones without the model", async () => {
     const t = setup();
@@ -326,6 +350,10 @@ describe("saving the brief", () => {
     expect(today.brief?.items[2].post.media.map((m) => m.url)).toEqual(["https://img/2.mp4", "https://img/0.jpg"]);
     expect(today.brief?.items[0].post.media).toEqual([]);
     expect(await as.query(api.brief.byDate, { date: "2026-11-16" })).toEqual(today.brief);
+    await t.run((ctx) => ctx.db.patch(highNew, { format: "story", expiresAt: Date.now() + 1000 }));
+    vi.setSystemTime(Date.now() + 2000);
+    expect((await as.query(api.brief.byDate, { date: "2026-11-16" }))?.items.map((i) => i.post._id)).toEqual([highOld, low]);
+    vi.setSystemTime(LA_DISPATCH);
     expect(await as.query(api.brief.byDate, { date: "2026-11-15" })).toBeNull();
     expect(await as.query(api.brief.dates, {})).toEqual({
       today: "2026-11-16",

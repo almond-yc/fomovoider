@@ -22,9 +22,10 @@ async function briefFor(ctx: QueryCtx, userId: Id<"users">, date: string) {
     .withIndex("by_briefRunId_and_rank", (q) => q.eq("briefRunId", run._id))
     .collect();
   const items = [];
+  const now = Date.now();
   for (const item of rows) {
     const post = await ctx.db.get(item.postId);
-    if (!post) continue;
+    if (!post || (post.expiresAt !== undefined && post.expiresAt <= now)) continue;
     const state = await ctx.db
       .query("postStates")
       .withIndex("by_userId_and_postId", (q) => q.eq("userId", userId).eq("postId", post._id))

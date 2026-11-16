@@ -89,6 +89,13 @@ export const briefWorkflow = workflow
     if (sources.xAccountId) {
       try {
         await step.runAction(internal.x.sync.syncAccount, { accountId: sources.xAccountId }, { retry: true });
+        // syncAccount records connector failures on the account and returns
+        // normally, so the account says whether this run got a fresh sync.
+        const failure = await step.runQuery(internal.brief.workflow.xSyncFailure, {
+          runId,
+          accountId: sources.xAccountId,
+        });
+        if (failure) skipped.push({ platform: "x", reason: failure });
       } catch (error) {
         skipped.push({ platform: "x", reason: message(error) });
       }
@@ -150,6 +157,23 @@ export const sources = internalQuery({
       skipped.push({ platform: "instagram", reason: "device offline" });
     } else instagram = true;
     return { userId: run.userId, xAccountId, instagram, skipped };
+  },
+});
+
+// Why X didn't sync during this run, or null when it did.
+export const xSyncFailure = internalQuery({
+  args: { runId: v.id("brief_runs"), accountId: v.id("connectedAccounts") },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, { runId, accountId }) => {
+    const run = await ctx.db.get(runId);
+    const account = await ctx.db.get(accountId);
+    if (!run || !account) return "account not found";
+    if (account.lastSyncedAt !== undefined && account.lastSyncedAt >= run.startedAt) return null;
+    if (account.status === "expired") return "session expired";
+    if (account.lastError) {
+      return account.lastError.kind === "platform" ? `sync failed: ${account.lastError.message}` : `sync failed: ${account.lastError.kind}`;
+    }
+    return "sync didn't complete";
   },
 });
 

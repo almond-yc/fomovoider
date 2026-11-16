@@ -10,7 +10,7 @@ import { type ConversationInput, vConversationInput, vMessage } from "../lib/val
 import { ConnectorFailure, type ConnectorError, type Id as ContractId, type Message, type Person } from "../../src/connectors/types";
 import { type ChatSigningKey, UNDECRYPTABLE_TEXT, chatMessages, eventSortKey, realmTokenFrom } from "../../src/connectors/x/chat";
 import { XChatEngine, type XdkChat } from "../../src/xchat/engine/core";
-import { type XChatConnection, connectXChat } from "./chatConnection";
+import { type XChatConnection, connectXChat, realtimeReads } from "./chatConnection";
 
 // Server-side X Chat: the passcode is checked with X once, the private keys
 // it unlocks are exported (@xdevplatform/chat-xdk-server) and kept encrypted
@@ -19,7 +19,6 @@ import { type XChatConnection, connectXChat } from "./chatConnection";
 
 const DECRYPT_PER_RUN = 10;
 const FETCH_PAGES_PER_CONVERSATION = 3;
-const REALTIME_READS_PER_DAY = 5;
 const PUBLIC_KEYS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const OWN_KEYS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const KEYS_CHANGED = "Your X Chat keys changed on X. Enter your X Chat passcode again.";
@@ -135,12 +134,11 @@ export const decryptDelivered = internalAction({
 });
 
 // A message X just pushed shouldn't stay locked because background sync used
-// up the day's chatEventReads: the public-key reads its decrypt needs come
-// from a small separate daily counter (X_DAILY_CHAT_REALTIME_READ_BUDGET).
+// its share of the day's chatEventReads: the public-key reads its decrypt
+// needs come from the reserved real-time part (chatConnection realtimeReads),
+// counted on its own daily counter.
 function realtimeBudget(): { runId: string; maxReads: number } {
-  const configured = Number(process.env.X_DAILY_CHAT_REALTIME_READ_BUDGET ?? REALTIME_READS_PER_DAY);
-  const maxReads = Number.isFinite(configured) && configured >= 0 ? configured : REALTIME_READS_PER_DAY;
-  return { runId: `realtime:${new Date().toISOString().slice(0, 10)}`, maxReads };
+  return { runId: `realtime:${new Date().toISOString().slice(0, 10)}`, maxReads: realtimeReads() };
 }
 
 // Fetches a conversation's new events, a few pages at most. False when the

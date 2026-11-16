@@ -274,6 +274,7 @@ describe("X Chat passcode", () => {
 
   test("a one-off backfill fills locked chats from its own read cap, not the daily budget", async () => {
     vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "2");
+    vi.stubEnv("X_DAILY_CHAT_REALTIME_READ_BUDGET", "0");
     stubX();
     const { t, accountId, as } = await setup();
     await t.action(internal.x.chat.syncAccount, { accountId });
@@ -331,8 +332,24 @@ describe("X Chat passcode", () => {
     expect(calls.filter((c) => c.key === "POST /2/oauth2/token")).toHaveLength(1);
   });
 
+  test("background runs get the daily chatEventReads minus the real-time reserve", async () => {
+    vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "30");
+    const calls = stubX();
+    const { t, accountId, as } = await setup();
+    await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("x_usage").collect()) if (row.key.includes(":chatEventReads:")) await ctx.db.patch(row._id, { used: 25 });
+    });
+    const before = calls.length;
+    await t.action(internal.x.chat.syncAccount, { accountId });
+    await settle(t);
+    expect(calls.slice(before).filter((c) => c.key.includes("/events") || c.key.includes("/public_keys"))).toEqual([]);
+    const usage = await t.run((ctx) => ctx.db.query("x_usage").collect());
+    expect(usage.find((u) => u.key.includes(":chatEventReads:"))?.used).toBe(25);
+  });
+
   test("a pushed message decrypts from the real-time reserve when sync used up the day's reads", async () => {
-    vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "1");
+    vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "6");
     stubX();
     const { t, accountId, as } = await setup();
     expect(await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE })).toEqual({ ok: true });

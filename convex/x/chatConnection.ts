@@ -8,6 +8,18 @@ import { convexUsageStore } from "./sync";
 
 export type XChatConnection = ReturnType<typeof connectXChat>;
 
+const REALTIME_READS_PER_DAY = 5;
+
+// The part of the daily chatEventReads budget held back for decrypting
+// messages X pushes through the webhook (chatNode.decryptDelivered), so they
+// aren't left locked once background sync has used its share. Background
+// runs get the rest, so the two never add up to more than the daily budget.
+export function realtimeReads(): number {
+  const configured = Number(process.env.X_DAILY_CHAT_REALTIME_READ_BUDGET ?? REALTIME_READS_PER_DAY);
+  const reads = Number.isFinite(configured) && configured >= 0 ? Math.floor(configured) : REALTIME_READS_PER_DAY;
+  return Math.min(reads, xConfigFromEnv(process.env).dailyChatEventReadBudget);
+}
+
 // An X Chat client on an account's session. A refreshed session is saved
 // only while the account still holds the session this action started with;
 // if the user reconnected meanwhile, the save is refused and the action fails
@@ -22,11 +34,12 @@ export function connectXChat(ctx: ActionCtx, account: Doc<"connectedAccounts">, 
   const usage = convexUsageStore(ctx);
   const runKey = (key: string) => `backfill:${backfill?.runId}:${key.replace(/:\d{4}-\d{2}-\d{2}$/, "")}`;
   const client = new XChatClient({
-    config: xConfigFromEnv(
-      backfill
-        ? new Proxy(process.env, { get: (env, name) => (name === "X_DAILY_CHAT_EVENT_READ_BUDGET" ? String(backfill.maxReads) : env[name as string]) })
-        : process.env,
-    ),
+    config: backfill
+      ? xConfigFromEnv(new Proxy(process.env, { get: (env, name) => (name === "X_DAILY_CHAT_EVENT_READ_BUDGET" ? String(backfill.maxReads) : env[name as string]) }))
+      : (() => {
+          const config = xConfigFromEnv(process.env);
+          return { ...config, dailyChatEventReadBudget: config.dailyChatEventReadBudget - realtimeReads() };
+        })(),
     usage: backfill
       ? {
           used: (key) => usage.used(runKey(key)),

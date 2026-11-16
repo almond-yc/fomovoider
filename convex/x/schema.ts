@@ -94,7 +94,8 @@ export const xTables = {
     updatedAt: v.number(),
   })
     .index("by_accountId", ["accountId"])
-    .index("by_userId", ["userId"]),
+    .index("by_userId", ["userId"])
+    .index("by_xUserId", ["xUserId"]),
 
   // Public X Chat signing keys per X user (as GET /2/users/{id}/public_keys
   // returns them), cached so decrypting doesn't pay X for them every run.

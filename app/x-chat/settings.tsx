@@ -19,7 +19,7 @@ export default function XChatSettingsScreen() {
           <Text className="font-medium">Lock X Chat now</Text>
         </Pressable>
       ) : (
-        <Pressable onPress={() => router.push("/x-chat/unlock")} className="items-center rounded-lg bg-primary p-4">
+        <Pressable onPress={() => router.push("/x-chat-passcode")} className="items-center rounded-lg bg-primary p-4">
           <Text className="text-primary-foreground font-medium">Unlock X Chat</Text>
         </Pressable>
       )}

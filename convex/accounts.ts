@@ -119,7 +119,7 @@ export const disconnect = mutation({
       .unique();
     if (!account) return null;
     await ctx.db.delete(account._id);
-    await resetPlatform(ctx, userId, platform);
+    await resetPlatform(ctx, userId, platform, undefined, account.me?.id);
     return null;
   },
 });
@@ -160,7 +160,7 @@ export const verifyIdentity = internalMutation({
       return null;
     }
     await ctx.db.patch(accountId, { me, status: "resetting", lastError: undefined });
-    await resetPlatform(ctx, account.userId, account.platform, accountId);
+    await resetPlatform(ctx, account.userId, account.platform, accountId, account.me.id);
     return null;
   },
 });
@@ -170,6 +170,7 @@ async function resetPlatform(
   userId: Id<"users">,
   platform: string,
   accountId?: Id<"connectedAccounts">,
+  previousMeId?: string,
 ) {
   const cursor = await ctx.db
     .query("feedCursors")
@@ -178,7 +179,7 @@ async function resetPlatform(
     )
     .unique();
   if (cursor) await ctx.db.delete(cursor._id);
-  if (platform === "x") await deleteChatKeys(ctx, userId);
+  if (platform === "x") await deleteChatKeys(ctx, userId, previousMeId);
   await ctx.scheduler.runAfter(0, internal.accounts.purgeContent, { userId, platform, accountId });
 }
 

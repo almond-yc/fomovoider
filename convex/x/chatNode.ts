@@ -121,6 +121,25 @@ export const decryptConversations = internalAction({
   },
 });
 
+// Opening a locked X Chat row in the app: with saved keys, fetch and decrypt
+// that conversation now instead of waiting for the background runs. Returns
+// whether it's readable afterwards.
+export const decryptConversation = action({
+  args: { conversationId: v.string() },
+  returns: v.object({ readable: v.boolean() }),
+  handler: async (ctx, { conversationId }): Promise<{ readable: boolean }> => {
+    const userId = await requireUserId(ctx);
+    const { account }: { account: Doc<"connectedAccounts"> | null } = await ctx.runQuery(internal.x.chat.accountFor, { userId });
+    if (!account || account.status !== "active" || !(await ctx.runQuery(internal.x.chatKeys.keysActive, { accountId: account._id }))) return { readable: false };
+    const row = await ctx.runQuery(internal.x.chat.conversationRow, { accountId: account._id, conversationId });
+    if (!row || row.platform !== "x") return { readable: false };
+    if (!row.unavailable) return { readable: true };
+    await decrypt(ctx, account._id, [toInput(row)], true);
+    const after = await ctx.runQuery(internal.x.chat.conversationRow, { accountId: account._id, conversationId });
+    return { readable: Boolean(after && !after.unavailable) };
+  },
+});
+
 // A webhook delivered a new event for this conversation and it is already
 // stored, so it is decrypted without paying X for another event page.
 export const decryptDelivered = internalAction({
@@ -324,7 +343,7 @@ async function openSession(ctx: ActionCtx, accountId: Id<"connectedAccounts">, b
     await ctx.runMutation(internal.x.chatKeys.markInvalid, { accountId, reason: KEYS_CHANGED });
     return null;
   }
-  const keys = await openKeys(row.encryptedKeys, accountId, account.me.id);
+  const keys = await openKeys(row.encryptedKeys, row.accountId, row.xUserId);
   const chat = await createChat();
   try {
     chat.importKeys({ keys, signingKeyVersion: row.signingKeyVersion });

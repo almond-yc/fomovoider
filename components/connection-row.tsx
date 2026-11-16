@@ -17,7 +17,8 @@ type Attempt = { state: 'idle' } | { state: 'connecting' } | { state: 'error'; m
 // A platform row that connects through the connector registry. "connect" is
 // the Connect screen; "settings" adds the handle, last sync, Sync now and
 // Disconnect. Instagram logs in through the app's web view and has Refresh now
-// instead of Sync now.
+// instead of Sync now; an account still read by the Mac host agent keeps Sync
+// now and can move to the in-app login.
 export function ConnectionRow({
   connector,
   account,
@@ -31,7 +32,7 @@ export function ConnectionRow({
   const ig = useInstagramWebView();
   const isInstagram = connector.platform === 'instagram';
   const igDevice = useQuery(api.instagram.devices.status, isInstagram ? {} : 'skip');
-  const igState = useQuery(api.instagram.webview.state, isInstagram && variant === 'settings' ? {} : 'skip');
+  const igState = useQuery(api.instagram.webview.state, isInstagram ? {} : 'skip');
   const [attempt, setAttempt] = useState<Attempt>({ state: 'idle' });
   const [note, setNote] = useState<string>();
   const [refreshing, setRefreshing] = useState(false);
@@ -61,10 +62,10 @@ export function ConnectionRow({
   }
 
   async function sync() {
-    if (!connector.sync) return;
+    if (!syncMutation) return;
     setNote('Syncing…');
     try {
-      const started = await convex.mutation(connector.sync, {});
+      const started = await convex.mutation(syncMutation, {});
       setNote(started === false ? 'Synced recently. Try again in a few minutes.' : undefined);
     } catch (err) {
       setNote(errorMessage(err, connector));
@@ -113,6 +114,9 @@ export function ConnectionRow({
   const busy = attempt.state === 'connecting';
   const broken = account?.status === 'expired' || account?.status === 'error';
   const igConnected = isInstagram && (igDevice?.paired === true || ig.status === 'ready');
+  const inAppInstagram = igState?.connected === true;
+  const macInstagram = isInstagram && igDevice?.paired === true && igState !== undefined && !inAppInstagram;
+  const syncMutation = macInstagram ? api.instagram.devices.runNow : connector.sync;
   const paused = igState ? pausedLine(igState) : undefined;
   const status = describe(connector, account, attempt, variant, igConnected);
 
@@ -136,11 +140,14 @@ export function ConnectionRow({
   const links: { label: string; onPress: () => void }[] = [];
   if (account && !busy) {
     if (variant === 'settings' && broken && connector.login) links.push({ label: 'Reconnect', onPress: connect });
-    if ((account.status === 'active' || account.status === 'pending') && connector.sync) {
+    if ((account.status === 'active' || account.status === 'pending') && syncMutation) {
       links.push({ label: 'Sync now', onPress: sync });
     }
-    if (variant === 'settings' && isInstagram && !broken && !refreshing && !paused) {
+    if (variant === 'settings' && inAppInstagram && !broken && !refreshing && !paused) {
       links.push({ label: 'Refresh now', onPress: refresh });
+    }
+    if (variant === 'settings' && macInstagram && !broken) {
+      links.push({ label: 'Log in here instead', onPress: connect });
     }
     if (variant === 'connect') links.push({ label: 'Disconnect', onPress: disconnect });
   }

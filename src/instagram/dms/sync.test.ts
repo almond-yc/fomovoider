@@ -187,4 +187,24 @@ describe("instagram dm delivery", () => {
     expect(submitted).toHaveLength(sentAsA);
     expect(capture.verified()).toBe(false);
   });
+
+  test("a submit that finishes after a reset doesn't mark the next viewer ready", async () => {
+    let release: () => void = () => undefined;
+    let ready = 0;
+    const capture = createDmCapture({
+      api: { ...api(), submit: () => new Promise<void>((r) => (release = r)) },
+      expectedHandle: () => VIEWER,
+      onReady: () => ready++,
+      onStale: () => undefined,
+      setTimer: () => undefined,
+    });
+    capture.handle({ type: "ig:response", operation: "PolarisDirectInboxMobileQuery", status: 200, body: JSON.stringify(inbox) });
+    capture.handle(detailResponse);
+    const flushing = capture.flush();
+    capture.reset();
+    release();
+    await flushing;
+    expect(ready).toBe(0);
+    expect(capture.verified()).toBe(false);
+  });
 });

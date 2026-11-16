@@ -99,6 +99,8 @@ export function createDmCapture(deps: DmCaptureDeps) {
   // The verified page viewer and the handle it was verified for.
   let viewer: (DmViewer & { for: string }) | undefined;
   let ready = false;
+  // Bumped by reset; a submit that finishes after a reset is ignored.
+  let generation = 0;
   const waiters = new Set<{ operation: string; resolve: (docs: Json[]) => void }>();
 
   // Forgets everything captured: another Fomovoider user or Instagram
@@ -107,6 +109,7 @@ export function createDmCapture(deps: DmCaptureDeps) {
     pending = emptyPending();
     viewer = undefined;
     ready = false;
+    generation++;
     lastSeq = 0;
   };
 
@@ -151,8 +154,9 @@ export function createDmCapture(deps: DmCaptureDeps) {
     const batch = pending;
     pending = { ...emptyPending(), viewerIds: [...batch.viewerIds] };
     if (batch.threads.length || batch.messages.length || batch.receipts.length) {
+      const submitted = generation;
       await deps.api.submit({ ...batch, viewer: { handle: viewer.handle, fbid: viewer.fbid } });
-      if (!ready) {
+      if (submitted === generation && !ready) {
         ready = true;
         deps.onReady?.();
       }

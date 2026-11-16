@@ -7,8 +7,14 @@ import { Icon } from '@/components/ui/icon';
 import { NAV_THEME, TITLE_FONT } from '@/lib/theme';
 import { api } from '@/convex/_generated/api';
 import { XChatOnboardingContext } from '@/lib/x-chat-passcode';
+import { InstagramWebViewHost } from '@/src/instagram/webview/InstagramWebViewHost';
 import { ConvexClientProvider } from '@/src/providers/ConvexClientProvider';
-import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, useFonts } from '@expo-google-fonts/inter';
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  useFonts,
+} from '@expo-google-fonts/inter';
 import { ThemeProvider } from 'expo-router/react-navigation';
 import { PortalHost } from '@rn-primitives/portal';
 import { Link, Stack, usePathname } from 'expo-router';
@@ -27,11 +33,7 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   const { colorScheme } = useColorScheme();
   const scheme = colorScheme ?? 'light';
-  const [fontsLoaded, fontError] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-  });
+  const [fontsLoaded, fontError] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold });
 
   useEffect(() => {
     if (Platform.OS === 'web') document.documentElement.classList.toggle('dark', scheme === 'dark');
@@ -43,9 +45,11 @@ export default function RootLayout() {
     <ConvexClientProvider>
       <ThemeProvider value={NAV_THEME[scheme]}>
         <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-        <ChatProviders>
-          <RootNavigator />
-        </ChatProviders>
+        <InstagramWebViewHost>
+          <ChatProviders>
+            <RootNavigator />
+          </ChatProviders>
+        </InstagramWebViewHost>
         <PortalHost />
       </ThemeProvider>
     </ConvexClientProvider>

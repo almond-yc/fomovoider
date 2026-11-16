@@ -124,14 +124,19 @@ export const fetchEvents = action({
 
 // For the server's decrypt and send actions: the same fetch for one account.
 export const fetchFor = internalAction({
-  args: { accountId: v.id("connectedAccounts"), conversationId: v.string(), limit: v.optional(v.number()) },
+  args: {
+    accountId: v.id("connectedAccounts"),
+    conversationId: v.string(),
+    limit: v.optional(v.number()),
+    backfill: v.optional(v.object({ runId: v.string(), maxReads: v.number() })),
+  },
   returns: v.object({ fetched: v.number(), caughtUp: v.boolean() }),
-  handler: async (ctx, { accountId, conversationId, limit }): Promise<{ fetched: number; caughtUp: boolean }> => {
+  handler: async (ctx, { accountId, conversationId, limit, backfill }): Promise<{ fetched: number; caughtUp: boolean }> => {
     const account: Doc<"connectedAccounts"> | null = await ctx.runQuery(internal.accounts.get, { accountId });
     if (!account?.me || account.status !== "active" || account.session.kind !== "oauth") {
       throw new ConnectorFailure({ kind: "session_expired" }, "Connect X first");
     }
-    return await fetchAndStore(ctx, account, account.me.id.slice(2), connectXChat(ctx, account), conversationId, limit);
+    return await fetchAndStore(ctx, account, account.me.id.slice(2), connectXChat(ctx, account, backfill), conversationId, limit);
   },
 });
 

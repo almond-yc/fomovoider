@@ -174,6 +174,49 @@ async function decrypt(ctx: ActionCtx, accountId: Id<"connectedAccounts">, conve
   if (locked.length) await ctx.runMutation(internal.ingest.upsertConversations, { accountId, conversations: locked });
 }
 
+// One-off backfill, run by hand: npx convex run x/chatNode:backfill
+// '{"accountId": "...", "maxReads": 400}'. Fetches and decrypts the account's
+// locked and unfinished X Chat conversations, spending at most maxReads chat
+// event reads (X bills $0.01 each; public key reads count too) from its own
+// cap instead of the daily budget, which the background runs keep using.
+export const backfill = internalAction({
+  args: { accountId: v.id("connectedAccounts"), maxReads: v.number(), maxConversations: v.optional(v.number()) },
+  returns: v.object({ conversations: v.number(), decrypted: v.number(), stillLocked: v.number(), eventsFetched: v.number() }),
+  handler: async (ctx, { accountId, maxReads, maxConversations }): Promise<{ conversations: number; decrypted: number; stillLocked: number; eventsFetched: number }> => {
+    if (!(maxReads > 0)) throw new Error("maxReads must be a positive number");
+    const runId = String(Date.now());
+    const pending = await ctx.runQuery(internal.x.chat.pendingConversations, { accountId, limit: maxConversations ?? 100 });
+    const session = await openSession(ctx, accountId, { runId, maxReads });
+    if (!session) throw new Error("This account has no active X Chat keys");
+    let decrypted = 0;
+    let eventsFetched = 0;
+    const locked: ConversationInput[] = [];
+    try {
+      for (const row of pending) {
+        const conversation = toInput(row);
+        let caughtUp = false;
+        while (!caughtUp && eventsFetched < maxReads) {
+          try {
+            const res = await ctx.runAction(internal.x.chat.fetchFor, { accountId, conversationId: conversation.id, backfill: { runId, maxReads } });
+            eventsFetched += res.fetched;
+            caughtUp = res.caughtUp;
+            if (!res.fetched && !caughtUp) break;
+          } catch (err) {
+            if (!(err instanceof Error && /budget/i.test(err.message))) console.error("X Chat backfill fetch failed:", errorText(err));
+            break;
+          }
+        }
+        if (caughtUp && (await decryptOne(ctx, session, conversation))) decrypted++;
+        else locked.push(asLocked(conversation));
+      }
+    } finally {
+      session.engine.lock();
+    }
+    if (locked.length) await ctx.runMutation(internal.ingest.upsertConversations, { accountId, conversations: locked });
+    return { conversations: pending.length, decrypted, stillLocked: locked.length, eventsFetched };
+  },
+});
+
 // messages.send for an X Chat conversation (via x/send:message): encrypts on
 // the server with the saved keys, sends, then syncs the conversation so the
 // sent message lands in the messages table, and returns it.
@@ -250,12 +293,12 @@ type ServerSession = {
 // Imports the account's saved keys into a chat engine, or null when there are
 // none. If X now lists a newer key for the account than the saved one, the
 // saved keys are marked invalid and null is returned.
-async function openSession(ctx: ActionCtx, accountId: Id<"connectedAccounts">): Promise<ServerSession | null> {
+async function openSession(ctx: ActionCtx, accountId: Id<"connectedAccounts">, backfill?: { runId: string; maxReads: number }): Promise<ServerSession | null> {
   const row: Doc<"x_chat_keys"> | null = await ctx.runQuery(internal.x.chatKeys.loadKeys, { accountId });
   const account: Doc<"connectedAccounts"> | null = await ctx.runQuery(internal.accounts.get, { accountId });
   if (!row?.encryptedKeys || !row.signingKeyVersion || !account?.me || account.session.kind !== "oauth") return null;
   const meId = account.me.id.slice(2);
-  const x = connectXChat(ctx, account);
+  const x = connectXChat(ctx, account, backfill);
   const own = await signingKeysFor(ctx, x, meId, [meId], OWN_KEYS_MAX_AGE_MS);
   const newest = own
     .filter((k) => k.userId === meId)

@@ -80,6 +80,11 @@ export const disconnect = mutation({
           await ctx.db.patch(run._id, { state: "skipped", finishedAt: Date.now(), error: "disconnected" });
         }
       }
+      const cursors = await ctx.db
+        .query("instagram_feedCursors")
+        .withIndex("by_deviceId_and_variant", (q) => q.eq("deviceId", device._id))
+        .collect();
+      for (const cursor of cursors) await ctx.db.delete(cursor._id);
       await ctx.db.patch(device._id, {
         tokenHash: undefined,
         accountId: undefined,
@@ -179,7 +184,8 @@ export const status = query({
       .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))[0];
     return {
       name: device.name,
-      paired: device.accountId !== undefined && device.tokenHash !== undefined,
+      paired:
+        device.accountId !== undefined && (device.tokenHash !== undefined || device.transport === "webview"),
       pausedUntil: device.pausedUntil,
       pauseReason: device.pauseReason,
       lastSeenAt: device.lastSeenAt,

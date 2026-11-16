@@ -1,5 +1,7 @@
 # Instagram connector (device-driven)
 
+> The main path is now the Fomovoider app's hidden instagram.com web view: `webview.ts` here and `src/instagram/` in the app (see src/instagram/README.md). It shares this folder's devices, runs, facts and the kill switch (`killSwitch.ts`). The iPhone driver below stays as the demo and fallback.
+
 Instagram has no API we can use, so this connector reads the real Instagram iOS app on the user's own logged-in iPhone. A host agent on a Mac drives the phone through WebDriverAgent (XCUITest), reads each screen's accessibility tree, crops the media out of screenshots, and sends normalized posts and stories to Convex. Convex decides **when** a run happens and **what budget** it gets; the agent decides **how** it moves.
 
 The connector only extracts and stores. It does no scoring, ranking or filtering: ads, suggested posts and reels are stored like everything else, with what the screen said about them recorded in `instagram_postFacts`.

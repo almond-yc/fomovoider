@@ -91,6 +91,10 @@ const postFields = {
   replyTo: v.optional(v.object({ id: v.string(), author: v.optional(vPerson) })),
   format: v.optional(v.union(v.literal("post"), v.literal("story"))),
   expiresAt: v.optional(v.number()),
+  // The platform's own markers: an ad, or a suggestion from an account the
+  // user doesn't follow. Connectors record them; the app decides what to show.
+  sponsored: v.optional(v.boolean()),
+  suggested: v.optional(v.boolean()),
   extracted: v.optional(vExtracted),
   relevance: v.optional(vRelevance),
 };

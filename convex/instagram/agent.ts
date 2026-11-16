@@ -3,9 +3,9 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { vMedia, vPerson, vPostInput, type PostInput } from "../lib/validators";
-import { deviceForToken } from "./common";
-import { STALE_CLAIM_MS, TRIPWIRE_PAUSE_MS } from "./limits";
-import { vRunStats, vTripwire } from "./schema";
+import { closeOpenRuns, deviceForToken, killSwitch } from "./common";
+import { KILL_SWITCH_RECHECK_MS, STALE_CLAIM_MS, TRIPWIRE_PAUSE_MS } from "./limits";
+import { vFacts, vRunStats, vTripwire } from "./schema";
 
 // Public functions the host agent on the user's Mac calls with its device
 // token. The agent holds no schedule and no state: it redeems a pairing code
@@ -28,7 +28,10 @@ export const redeemPairing = mutation({
       platform: "instagram",
       deviceId: device._id,
     });
+    // Pairing the Mac host agent takes over from the app's web view.
+    if (device.transport === "webview") await closeOpenRuns(ctx, device._id, "switched to the host agent");
     await ctx.db.patch(device._id, {
+      transport: undefined,
       tokenHash,
       accountId,
       pairingCode: undefined,
@@ -77,6 +80,11 @@ export const claimRun = mutation({
         q.eq("deviceId", device._id).eq("state", "pending").lte("scheduledFor", now),
       )
       .first();
+    const kill = await killSwitch(ctx);
+    if (kill) {
+      if (due) await ctx.db.patch(due._id, { state: "skipped", finishedAt: now, error: "kill switch" });
+      return { kind: "paused" as const, until: now + KILL_SWITCH_RECHECK_MS, reason: kill.reason ?? "kill switch" };
+    }
     if (device.pausedUntil !== undefined && device.pausedUntil > now) {
       if (due) await ctx.db.patch(due._id, { state: "skipped", finishedAt: now, error: "device paused" });
       return { kind: "paused" as const, until: device.pausedUntil, reason: device.pauseReason };
@@ -103,7 +111,7 @@ export const claimRun = mutation({
 
 // The account a device writes to must be its owner's Instagram account and
 // hold this device's session.
-async function ownedAccount(ctx: QueryCtx, device: Doc<"instagram_devices">) {
+export async function ownedAccount(ctx: QueryCtx, device: Doc<"instagram_devices">) {
   if (!device.accountId) throw new Error("Device has no connected account");
   const account = await ctx.db.get(device.accountId);
   if (
@@ -165,13 +173,7 @@ const vCapturedItem = v.object({
   expiresAt: v.optional(v.string()),
   extracted: vPostInput.fields.extracted,
   media: v.array(vCapturedMedia),
-  facts: v.object({
-    sponsored: v.boolean(),
-    suggested: v.boolean(),
-    isReel: v.boolean(),
-    followsAuthor: v.optional(v.boolean()),
-    storyTrayPosition: v.optional(v.number()),
-  }),
+  facts: vFacts,
 });
 
 export const submitItems = mutation({
@@ -184,6 +186,8 @@ export const submitItems = mutation({
       posts.push({
         ...item,
         platform: "instagram",
+        sponsored: facts.sponsored,
+        suggested: facts.suggested,
         media: await Promise.all(media.map((m) => ownUpload(ctx, device, run, item.id, m))),
       });
       await upsertFacts(ctx, device, runId, item.id, facts);
@@ -196,12 +200,12 @@ export const submitItems = mutation({
 // Ingest keeps a passed storageId and deletes the file with the post, so a
 // device may only pass files uploaded during this run, each bound to the
 // first device and post that used it.
-async function ownUpload(
+export async function ownUpload<M extends { storageId: Id<"_storage"> }>(
   ctx: MutationCtx,
   device: Doc<"instagram_devices">,
   run: Doc<"instagram_runs">,
   postId: string,
-  { storageId, ...rest }: Infer<typeof vCapturedMedia>,
+  { storageId, ...rest }: M,
 ) {
   const file = await ctx.db.system.get(storageId);
   const url = await ctx.storage.getUrl(storageId);
@@ -219,7 +223,7 @@ async function ownUpload(
   return { ...rest, url, storageId };
 }
 
-async function upsertFacts(
+export async function upsertFacts(
   ctx: MutationCtx,
   device: Doc<"instagram_devices">,
   runId: Id<"instagram_runs">,
@@ -246,35 +250,53 @@ export const finishRun = mutation({
     caughtUp: v.optional(v.boolean()),
   },
   returns: v.null(),
-  handler: async (ctx, { token, runId, stats, tripwire, error, caughtUp }) => {
+  handler: async (ctx, { token, runId, ...outcome }) => {
     const { device, accountId } = await claimedRun(ctx, token, runId);
-    const now = Date.now();
-    const state = tripwire ? "aborted" : error ? "failed" : "done";
-    await ctx.db.patch(runId, { state, finishedAt: now, stats, tripwire, error });
-    if (tripwire) {
-      const pausedUntil = now + TRIPWIRE_PAUSE_MS;
-      await ctx.db.patch(device._id, { pausedUntil, pauseReason: `${tripwire.kind}: ${tripwire.screenText.slice(0, 200)}` });
-      await ctx.runMutation(internal.accounts.recordSync, {
-        accountId,
-        error:
-          tripwire.kind === "suspicious"
-            ? { kind: "rate_limited", retryAt: new Date(pausedUntil).toISOString() }
-            : { kind: "session_expired" },
-      });
-      return null;
-    }
-    if (error) {
-      await ctx.runMutation(internal.accounts.recordSync, { accountId, error: { kind: "platform", message: error } });
-      return null;
-    }
-    const account = await ctx.db.get(accountId);
-    if (account?.status === "pending" || account?.status === "resetting") return null;
-    await ctx.runMutation(internal.ingest.upsertPosts, {
-      accountId,
-      posts: [],
-      page: { cursor: String(runId), caughtUp: caughtUp ?? false },
-    });
-    await ctx.runMutation(internal.accounts.recordSync, { accountId });
+    await finishClaimedRun(ctx, device, accountId, runId, outcome);
     return null;
   },
 });
+
+// Records a claimed run's outcome. A tripwire pauses the device for 72 hours
+// and marks the account expired or rate limited; success advances the feed
+// cursor and records the sync.
+export async function finishClaimedRun(
+  ctx: MutationCtx,
+  device: Doc<"instagram_devices">,
+  accountId: Id<"connectedAccounts">,
+  runId: Id<"instagram_runs">,
+  { stats, tripwire, error, caughtUp }: {
+    stats: Infer<typeof vRunStats>;
+    tripwire?: Infer<typeof vTripwire>;
+    error?: string;
+    caughtUp?: boolean;
+  },
+) {
+  const now = Date.now();
+  const state = tripwire ? "aborted" : error ? "failed" : "done";
+  await ctx.db.patch(runId, { state, finishedAt: now, stats, tripwire, error });
+  if (tripwire) {
+    const pausedUntil = now + TRIPWIRE_PAUSE_MS;
+    await ctx.db.patch(device._id, { pausedUntil, pauseReason: `${tripwire.kind}: ${tripwire.screenText.slice(0, 200)}` });
+    await ctx.runMutation(internal.accounts.recordSync, {
+      accountId,
+      error:
+        tripwire.kind === "suspicious"
+          ? { kind: "rate_limited", retryAt: new Date(pausedUntil).toISOString() }
+          : { kind: "session_expired" },
+    });
+    return;
+  }
+  if (error) {
+    await ctx.runMutation(internal.accounts.recordSync, { accountId, error: { kind: "platform", message: error } });
+    return;
+  }
+  const account = await ctx.db.get(accountId);
+  if (account?.status === "pending" || account?.status === "resetting") return;
+  await ctx.runMutation(internal.ingest.upsertPosts, {
+    accountId,
+    posts: [],
+    page: { cursor: String(runId), caughtUp: caughtUp ?? false },
+  });
+  await ctx.runMutation(internal.accounts.recordSync, { accountId });
+}

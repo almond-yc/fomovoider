@@ -12,13 +12,27 @@ export type XChatConnection = ReturnType<typeof connectXChat>;
 // only while the account still holds the session this action started with;
 // if the user reconnected meanwhile, the save is refused and the action fails
 // instead of overwriting the new one.
-export function connectXChat(ctx: ActionCtx, account: Doc<"connectedAccounts">) {
+// backfill: a one-off run (chatNode.backfill) that spends its own explicit
+// read cap, counted under its own usage keys, instead of the daily budget.
+export function connectXChat(ctx: ActionCtx, account: Doc<"connectedAccounts">, backfill?: { runId: string; maxReads: number }) {
   let session = account.session as Session;
   let saving: Promise<unknown> = Promise.resolve();
   let sessionVersion = account.sessionVersion ?? 0;
+  const usage = convexUsageStore(ctx);
+  const runKey = (key: string) => `backfill:${backfill?.runId}:${key.replace(/:\d{4}-\d{2}-\d{2}$/, "")}`;
   const client = new XChatClient({
-    config: xConfigFromEnv(process.env),
-    usage: convexUsageStore(ctx),
+    config: xConfigFromEnv(
+      backfill
+        ? new Proxy(process.env, { get: (env, name) => (name === "X_DAILY_CHAT_EVENT_READ_BUDGET" ? String(backfill.maxReads) : env[name as string]) })
+        : process.env,
+    ),
+    usage: backfill
+      ? {
+          used: (key) => usage.used(runKey(key)),
+          reserve: (key, amount, limit) => usage.reserve(runKey(key), amount, limit),
+          release: (key, amount) => usage.release(runKey(key), amount),
+        }
+      : usage,
     onSessionRefreshed: (next) => {
       session = next;
       saving = saving.then(async () => {

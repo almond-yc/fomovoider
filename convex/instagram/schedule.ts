@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
+import { killSwitch } from "./common";
 import { RUN_BUDGET, SCHEDULE_JITTER_MS, SCHEDULE_LOCAL_HOURS } from "./limits";
 
 // Minutes east of UTC for a time zone at a given instant.
@@ -42,8 +43,9 @@ export const planDay = internalMutation({
   handler: async (ctx) => {
     const now = Date.now();
     let planned = 0;
+    if (await killSwitch(ctx)) return planned;
     for await (const device of ctx.db.query("instagram_devices")) {
-      if (!device.scheduleEnabled || !device.accountId || !device.tokenHash) continue;
+      if (!device.scheduleEnabled || !device.accountId || !device.tokenHash || device.transport === "webview") continue;
       const slots = slotsForNextDay(device.timezone, now);
       for (const slot of slots) {
         const scheduledFor = slot + Math.round((Math.random() * 2 - 1) * SCHEDULE_JITTER_MS);

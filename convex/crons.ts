@@ -1,4 +1,5 @@
 import { cronJobs } from "convex/server";
+import { registerBriefCrons } from "./brief/crons";
 import { registerInstagramCrons } from "./instagram/crons";
 import { registerAppCrons } from "./retention";
 import { registerXCrons } from "./x/crons";
@@ -9,4 +10,5 @@ const crons = cronJobs();
 registerAppCrons(crons);
 registerXCrons(crons);
 registerInstagramCrons(crons);
+registerBriefCrons(crons);
 export default crons;

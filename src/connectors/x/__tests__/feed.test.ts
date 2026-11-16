@@ -67,6 +67,36 @@ describe("feed", () => {
     expect(page.caughtUp).toBe(false);
   });
 
+  it("a pass cut short keeps its place, and the next run finishes it and reports caught up", async () => {
+    const { connector, x, session } = setup();
+    x.on("GET", MENTIONS, { body: empty });
+    x.on("GET", HOME, sliced("home-timeline"));
+    const first = await connector.feed(session, { since: "x1|1|1|", limit: 10 });
+    expect(first.items.length).toBeGreaterThan(0);
+    expect(first.caughtUp).toBe(false);
+    expect(first.cursor).toBe("x1|1|1||7140dibdnow9c7btw421dyz6jism75z99gyxd8egarsc4|1857000000000000006||");
+
+    const next = setup();
+    next.x.on("GET", MENTIONS, { body: empty });
+    next.x.on("GET", HOME, { body: empty });
+    const second = await next.connector.feed(next.session, { since: first.cursor, limit: 10 });
+    const resumed = next.x.callsTo(HOME)[0]!.url.searchParams;
+    expect(resumed.get("pagination_token")).toBe("7140dibdnow9c7btw421dyz6jism75z99gyxd8egarsc4");
+    expect(resumed.get("since_id")).toBe("1");
+    expect(second.caughtUp).toBe(true);
+    expect(second.cursor).toBe("x1|1857000000000000006|1|");
+  });
+
+  it("a stream the budget stopped before its first page stays where it was", async () => {
+    const { connector, x, session } = setup();
+    x.on("GET", MENTIONS, { body: empty });
+    x.on("GET", HOME, { body: lastPage("home-timeline") });
+    const page = await connector.feed(session, { since: "x1|1|1|", limit: 4 });
+    expect(x.callsTo(MENTIONS)).toHaveLength(0);
+    expect(page.caughtUp).toBe(false);
+    expect(page.cursor).toBe("x1|1857000000000000006|1|");
+  });
+
   it("deduplicates a post that is both a mention and in the home timeline", async () => {
     const { connector, x, session } = setup();
     x.on("GET", MENTIONS, { body: fixture("mentions") });

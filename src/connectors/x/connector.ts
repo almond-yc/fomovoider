@@ -62,23 +62,40 @@ const ENCRYPTION_PROBLEMS = new Set([
   "unencrypted-send-not-allowed",
 ]);
 
+// Per stream: home/mentions is the newest post of the last finished pass
+// (the next pass's since_id). A pass cut short by the limit or the budget
+// also keeps where it stopped (homeToken/mentionsToken, X's pagination token
+// toward older posts) and the newest post it saw (homeNewest/mentionsNewest),
+// so the next run continues it instead of skipping the posts in between.
 interface FeedCursor {
   home?: string;
   mentions?: string;
   startTime?: ISODate;
+  homeToken?: string;
+  homeNewest?: string;
+  mentionsToken?: string;
+  mentionsNewest?: string;
 }
+
+const PASS_FIELDS = ["homeToken", "homeNewest", "mentionsToken", "mentionsNewest"] as const;
 
 export function parseFeedSince(since: string): FeedCursor {
   if (since.startsWith(`${CURSOR_PREFIX}|`)) {
-    const [, home, mentions, startTime] = since.split("|");
-    return { ...(home ? { home } : {}), ...(mentions ? { mentions } : {}), ...(startTime ? { startTime } : {}) };
+    const [, home, mentions, startTime, ...pass] = since.split("|");
+    const cursor: FeedCursor = { ...(home ? { home } : {}), ...(mentions ? { mentions } : {}), ...(startTime ? { startTime } : {}) };
+    PASS_FIELDS.forEach((field, i) => {
+      if (pass[i]) cursor[field] = pass[i];
+    });
+    return cursor;
   }
   if (!Number.isNaN(Date.parse(since))) return { startTime: new Date(since).toISOString() };
   throw new ConnectorFailure({ kind: "platform", message: `Unrecognized X feed cursor: ${since}` });
 }
 
 export function formatFeedCursor(c: FeedCursor): string {
-  return [CURSOR_PREFIX, c.home ?? "", c.mentions ?? "", c.startTime ?? ""].join("|");
+  const fields = [CURSOR_PREFIX, c.home ?? "", c.mentions ?? "", c.startTime ?? ""];
+  if (PASS_FIELDS.some((field) => c[field])) fields.push(...PASS_FIELDS.map((field) => c[field] ?? ""));
+  return fields.join("|");
 }
 
 export function stripXId(id: Id): string {
@@ -145,8 +162,8 @@ export class XConnector implements Connector {
     const grant = await this.reserve(me.id, "postReads", opts.limit * READS_PER_POST);
     const exclude = (this.opts.feedExclude ?? ["replies", "retweets"]).join(",") || undefined;
     const streams: FeedStream[] = [
-      { endpoint: "mentions", path: paths.mentions(me.id), sinceId: since.mentions, minResults: 5, complete: false, stalled: false },
-      { endpoint: "home_timeline", path: paths.homeTimeline(me.id), sinceId: since.home, minResults: 1, exclude, complete: false, stalled: false },
+      { endpoint: "mentions", path: paths.mentions(me.id), sinceId: since.mentions, token: since.mentionsToken, newest: since.mentionsNewest, minResults: 5, complete: false, stalled: false },
+      { endpoint: "home_timeline", path: paths.homeTimeline(me.id), sinceId: since.home, token: since.homeToken, newest: since.homeNewest, minResults: 1, exclude, complete: false, stalled: false },
     ];
     const posts: Post[] = [];
     let spent = 0;
@@ -177,16 +194,20 @@ export class XConnector implements Connector {
     const byId = new Map<string, Post>();
     for (const post of posts) if (!byId.has(post.id)) byId.set(post.id, post);
     const sorted = [...byId.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : -compareXIds(a.id.slice(2), b.id.slice(2))));
-    const items = sorted.slice(0, opts.limit);
     const [mentions, home] = streams as [FeedStream, FeedStream];
+    // A finished stream moves its since_id to the pass's newest post; an
+    // unfinished one keeps it and saves where to continue. caughtUp only when
+    // both streams have read everything new.
     return {
-      items,
+      items: sorted,
       cursor: formatFeedCursor({
-        home: home.newest ?? since.home,
-        mentions: mentions.newest ?? since.mentions,
+        home: home.complete ? (home.newest ?? since.home) : since.home,
+        mentions: mentions.complete ? (mentions.newest ?? since.mentions) : since.mentions,
         ...(since.startTime ? { startTime: since.startTime } : {}),
+        ...(home.complete ? {} : { homeToken: home.token, homeNewest: home.newest }),
+        ...(mentions.complete ? {} : { mentionsToken: mentions.token, mentionsNewest: mentions.newest }),
       }),
-      caughtUp: streams.every((s) => s.complete) && items.length === sorted.length,
+      caughtUp: streams.every((s) => s.complete),
     };
   }
 

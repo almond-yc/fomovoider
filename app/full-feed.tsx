@@ -149,7 +149,7 @@ function FeedSession({
     ]);
   };
 
-  if (status === 'LoadingFirstPage') return <SkeletonList />;
+  if (reached === null && status === 'LoadingFirstPage') return <SkeletonList />;
   if (caughtUp && posts.length === 0) {
     return (
       <FlatList

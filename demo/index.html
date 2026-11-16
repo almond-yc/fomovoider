@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Try Fomovoider: a finite social feed and one inbox, with safe sample data.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Fomovoider · Interactive demo</title>
+  <style>
+    :root { color-scheme: light dark; --bg: light-dark(#fafafa,#101010); --panel: light-dark(#fff,#171717); --text: light-dark(#171717,#f5f5f5); --muted: light-dark(#686868,#aaa); --line: light-dark(#e4e4e4,#343434); --soft: light-dark(#f3f3f3,#242424); --accent: light-dark(#275c49,#9acbb6); }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    button,input,textarea { font: inherit; }
+    button { cursor: pointer; border: 0; background: var(--soft); color: var(--text); border-radius: 8px; min-height: 44px; padding: 10px 16px; }
+    button:hover { filter: brightness(.94); }
+    button:focus-visible,input:focus-visible,textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    button:disabled { cursor: wait; opacity: .6; }
+    .solid { background: var(--text); color: var(--panel); width: 100%; }
+    .quiet { background: transparent; color: var(--muted); }
+    .wrap { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: 1fr 420px; gap: 100px; padding: 64px 36px; align-items: start; }
+    .intro { padding-top: 60px; position: sticky; top: 30px; }
+    .eyebrow { color: var(--accent); font-size: 13px; letter-spacing: .08em; }
+    h1 { font: 52px/1.1 Georgia,serif; letter-spacing: -1.5px; margin: 22px 0; }
+    .intro p { color: var(--muted); max-width: 410px; font-size: 17px; }
+    .steps { margin: 32px 0; padding-left: 22px; color: var(--muted); }
+    .steps li { padding: 6px 0; }
+    .steps strong { color: var(--text); font-weight: 500; }
+    .note { font-size: 12px !important; }
+    .phone { background: var(--panel); border: .5px solid var(--line); border-radius: 24px; overflow: hidden; height: 740px; display: flex; flex-direction: column; }
+    .top { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: .5px solid var(--line); }
+    .brand { font: 23px Georgia,serif; }
+    .badge { color: var(--accent); font-size: 11px; }
+    .safety { background: var(--soft); padding: 9px 20px; color: var(--muted); font-size: 11px; text-align: center; }
+    #screen { flex: 1; min-height: 0; overflow-y: auto; }
+    [hidden] { display: none !important; }
+    .pad { padding: 28px 24px; }
+    h2 { font: 30px/1.2 Georgia,serif; margin: 12px 0; }
+    h3 { font: 21px Georgia,serif; margin: 10px 0; }
+    .muted { color: var(--muted); }
+    .small { font-size: 12px; }
+    label { display: block; margin: 24px 0 8px; }
+    textarea,input { width: 100%; border: .5px solid var(--line); border-radius: 8px; padding: 12px; background: var(--panel); color: var(--text); }
+    textarea { min-height: 110px; resize: vertical; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .spaced { justify-content: space-between; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 28px; }
+    .chips button { font-size: 12px; padding: 8px 10px; }
+    .date { padding: 15px 24px; border-bottom: .5px solid var(--line); color: var(--muted); font-size: 12px; }
+    .summary { margin: 18px 20px 0; background: var(--soft); border-radius: 10px; padding: 14px; }
+    .post { padding: 22px 24px; border-bottom: 1px dashed var(--line); }
+    .author { font-size: 13px; font-weight: 500; }
+    .source { margin-left: auto; font-size: 12px; color: var(--muted); }
+    .post p { margin: 10px 0; }
+    .post button { padding: 6px 12px; font-size: 12px; }
+    .landscape { width: 100%; height: 155px; border-radius: 10px; background: var(--soft); color: var(--accent); }
+    .caught { padding: 32px 20px; text-align: center; }
+    .caught svg { width: 28px; height: 28px; color: var(--accent); }
+    nav { display: flex; border-top: .5px solid var(--line); padding: 8px; gap: 8px; }
+    nav button { flex: 1; background: transparent; color: var(--muted); }
+    nav button[aria-selected="true"] { color: var(--text); background: var(--soft); }
+    .conversation { width: 100%; background: transparent; border-radius: 0; text-align: left; padding: 22px 24px; border-bottom: .5px solid var(--line); }
+    .avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--soft); flex-shrink: 0; font-size: 12px; }
+    .bubble { padding: 12px 16px; background: var(--soft); border-radius: 12px; margin: 14px 0; max-width: 90%; overflow-wrap: anywhere; }
+    .mine { margin-left: auto; border: .5px solid var(--line); background: var(--panel); }
+    .message-list { padding: 12px 24px; }
+    .composer { padding: 16px 24px; }
+    #status { min-height: 26px; color: var(--accent); text-align: center; font-size: 12px; padding: 6px; }
+    .error { color: var(--muted); padding: 12px 0; }
+    @media(max-width:850px) { .wrap { gap: 36px; grid-template-columns: 1fr 390px; padding: 28px 20px; } h1 { font-size: 38px; } }
+    @media(max-width:680px) { .wrap { display: block; padding: 0; } .intro { position: static; padding: 24px; } h1 { font-size: 32px; margin: 12px 0; } .intro p { font-size: 14px; } .steps { display: none; } .phone { border-radius: 0; border-left: 0; border-right: 0; height: 720px; } }
+  </style>
+</head>
+<body>
+  <!-- Screens: preferences → Morning Brief ↔ unified inbox → conversation. State is local to this tab. Filtering uses fixture categories, not an AI call; all messages are simulated. -->
+  <div class="wrap">
+    <aside class="intro">
+      <div class="eyebrow">FOMOVOIDER / INTERACTIVE DEMO</div>
+      <h1>All the good parts.<br>None of the slop.</h1>
+      <p>Your people. Your messages. A feed that ends. Catch up on X and Instagram, then get back to your life.</p>
+      <ol class="steps">
+        <li><strong>Define your slop.</strong> Tell the demo what to leave out.</li>
+        <li><strong>Read your Morning Brief.</strong> Save a post. Reach the end.</li>
+        <li><strong>Open Chats.</strong> Try a reply without sending anything.</li>
+      </ol>
+      <p class="note">A safe browser walkthrough of the native app’s core flow. Fictional sample content only. Filtering is simulated, not a live AI run. No login, account connection, or external messages.</p>
+      <button type="button" class="quiet" id="reset">Restart demo ↺</button>
+    </aside>
+    <section class="phone" aria-label="Fomovoider demo app">
+      <header class="top"><span class="brand">Fomovoider</span><span class="badge">SAMPLE MODE</span></header>
+      <div class="safety">Local demo · no real accounts or messages</div>
+      <main id="screen"></main>
+      <div id="status" role="status" aria-live="polite"></div>
+      <nav id="tabs" aria-label="Main navigation" role="tablist" hidden></nav>
+    </section>
+  </div>
+  <script>
+    const posts = [
+      { id: 'trail', name: 'Ana Ruiz', handle: 'anaruiz', platform: 'X', title: 'Sunrise on the ridge', text: 'Finished the trail before sunrise. Worth the 4am alarm.', category: 'friends', image: true },
+      { id: 'thought', name: 'Mei Chen', handle: 'm.chen', platform: 'Instagram', text: 'No title on this one, just a thought: the best feeds end.', category: 'friends' },
+      { id: 'build', name: 'Priya Raman', handle: 'priyar', platform: 'X', title: 'A tiny tool, shipped', text: 'Made a free map of the neighborhood’s repair cafés. Bring your broken things this Saturday.', category: 'projects' },
+      { id: 'photo', name: 'Tomás Herrera', handle: 'tomas.h', platform: 'Instagram', title: 'Sunday, offline', text: 'Coffee, a paperback, and no plans. See you at the park?', category: 'friends' },
+      { id: 'ad', name: 'Daily Deals', handle: 'dailydeals', platform: 'Instagram', text: 'Sponsored: one more thing you absolutely need. Today only!', category: 'ads' },
+      { id: 'bait', name: 'Hot Takes', handle: 'hottakes', platform: 'X', text: 'Nobody will agree with this. Reply if you dare.', category: 'engagement bait' },
+      { id: 'crypto', name: 'Market Noise', handle: 'marketnoise', platform: 'X', text: 'This token is going to the moon. Don’t miss out.', category: 'crypto' },
+      { id: 'meme', name: 'Again and Again', handle: 'againagain', platform: 'Instagram', text: 'The same meme you have seen six times this morning.', category: 'memes' }
+    ];
+    const chats = [
+      { id: 'ana', name: 'Ana Ruiz', platform: 'X', initials: 'AR', text: 'Same trail next Sunday? We can start a little later this time.' },
+      { id: 'mei', name: 'Mei Chen', platform: 'Instagram', initials: 'MC', text: 'Found a quiet café for our next catch-up. Saturday at 10?' }
+    ];
+    let state;
+    let timer;
+    const screen = document.getElementById('screen');
+    const tabs = document.getElementById('tabs');
+    const status = document.getElementById('status');
+    const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    function reset() {
+      clearTimeout(timer);
+      state = { page: 'preferences', preference: 'Ads, engagement bait, crypto, and recycled memes', saved: [], hidden: [], replies: { ana: [], mei: [] }, chat: 'ana', showAll: false, failed: false };
+      status.textContent = '';
+      render();
+    }
+    function announce(text) { status.textContent = text; }
+    function navigate(page) { state.page = page; announce(''); render(); }
+    function filtered(post) {
+      return !['friends','projects'].includes(post.category) && state.preference.toLowerCase().includes(post.category);
+    }
+    function landscape() {
+      return '<svg class="landscape" viewBox="0 0 360 155" role="img" aria-label="Illustrated mountain sunrise, sample media"><circle cx="262" cy="43" r="20" fill="currentColor" opacity=".3"/><path d="M0 150 90 44 166 117 228 64 360 155Z" fill="currentColor" opacity=".25"/><path d="M0 155 140 81 244 155Z" fill="currentColor" opacity=".45"/></svg>';
+    }
+    function render() {
+      tabs.hidden = state.page === 'preferences' || state.page === 'loading';
+      tabs.innerHTML = tabs.hidden ? '' : '<button type="button" role="tab" data-page="feed" aria-selected="'+(state.page === 'feed')+'">Feed</button><button type="button" role="tab" data-page="chats" aria-selected="'+(['chats','chat'].includes(state.page))+'">Chats</button>';
+      if (state.page === 'preferences') {
+        screen.innerHTML = '<div class="pad"><div class="small muted">01 / YOUR ATTENTION, YOUR RULES</div><h2>What’s slop for you?</h2><p class="muted">Keep the people and ideas you care about. Leave the rest out.</p><label for="preference">I don’t want to see…</label><textarea id="preference" maxlength="500">'+escape(state.preference)+'</textarea><div class="chips"><button type="button" data-preset="Ads, engagement bait, crypto, and recycled memes">Less noise</button><button type="button" data-preset="Ads and engagement bait">Keep memes &amp; crypto</button></div><button type="button" class="solid" id="prepare">Show my Morning Brief</button><p class="small muted">Demo filter recognizes ads, engagement bait, crypto, and memes. The native app uses an AI judge.</p></div>';
+      } else if (state.page === 'loading') {
+        screen.innerHTML = '<div class="pad" aria-busy="true"><h2>Preparing your brief</h2><p class="muted">Reading 8 sample posts and leaving out your slop.</p><p class="small muted">Simulated preparation · no AI request</p></div>';
+      } else if (state.page === 'feed') {
+        const count = posts.filter(filtered).length;
+        const visible = posts.filter(p => (state.showAll || !filtered(p)) && !state.hidden.includes(p.id));
+        screen.innerHTML = '<div class="date row spaced"><span>Sunday, November 15 · sample day</span><button type="button" class="quiet" data-page="preferences">Edit filter</button></div><div class="summary"><h3>Your Morning Brief</h3><div class="small muted">'+(8-count)+' kept · '+count+' filtered from 8 sample posts</div><button type="button" class="quiet" id="toggle-all">'+(state.showAll?'Back to my brief':'Compare all 8 posts')+'</button></div>'+visible.map(p => '<article class="post"><div class="row"><span class="author">'+escape(p.name)+'</span><span class="source">'+p.platform+'</span></div><div class="small muted">@'+p.handle+(filtered(p)?' · Would be filtered':'')+'</div>'+(p.title?'<h3>'+p.title+'</h3>':'')+'<p>'+p.text+'</p>'+(p.image?landscape():'')+'<div class="row"><button type="button" data-save="'+p.id+'" aria-pressed="'+state.saved.includes(p.id)+'">'+(state.saved.includes(p.id)?'Saved ✓':'Save')+'</button><button type="button" class="quiet" data-hide="'+p.id+'">Hide</button></div></article>').join('')+'<div class="caught"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m7 12 3 3 7-7"/></svg><h3>You’re all caught up</h3><p class="small muted">No infinite scroll. Go enjoy your day.</p>'+(state.hidden.length?'<button type="button" class="quiet" id="restore">Restore hidden posts</button>':'')+'</div>';
+      } else if (state.page === 'chats') {
+        screen.innerHTML = '<div class="pad"><h2>One inbox.</h2><p class="muted">Your conversations, not your distractions.</p></div>'+chats.map(c => '<button type="button" class="conversation" data-chat="'+c.id+'"><div class="row"><span class="avatar">'+c.initials+'</span><span><span class="author">'+c.name+'</span><br><span class="small muted">'+c.platform+' · Sample conversation</span></span></div><p>'+c.text+'</p></button>').join('');
+      } else {
+        const chat = chats.find(c => c.id === state.chat);
+        screen.innerHTML = '<div class="pad"><button type="button" class="quiet" data-page="chats">← All chats</button><h2>'+chat.name+'</h2><span class="small muted">'+chat.platform+' · Fictional sample conversation</span></div><div class="message-list"><div class="bubble">'+chat.text+'</div>'+state.replies[chat.id].map(text => '<div class="bubble mine">'+escape(text)+'<div class="small muted">Simulated · not sent</div></div>').join('')+'</div><div class="composer"><label for="reply">Try a reply</label><input id="reply" maxlength="500" placeholder="Sounds great. See you there!"><p class="small muted">Stays in this tab. Nothing is sent to '+chat.platform+'.</p><button type="button" class="solid" id="send">Simulate reply</button><button type="button" class="quiet" id="fail">Try a failed delivery</button>'+(state.failed?'<div class="error" role="alert">Simulated delivery failure. Your text is still in the box. Try Simulate reply again.</div>':'')+'</div>';
+      }
+    }
+    document.addEventListener('click', event => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      if (button.id === 'reset') return reset();
+      if (button.dataset.page) return navigate(button.dataset.page);
+      if (button.dataset.preset) {
+        document.getElementById('preference').value = button.dataset.preset;
+        return;
+      }
+      if (button.id === 'prepare') {
+        const value = document.getElementById('preference').value.trim();
+        if (!value) return announce('Tell us what to filter, or choose a preset.');
+        state.preference = value;
+        state.showAll = false;
+        navigate('loading');
+        timer = setTimeout(() => navigate('feed'), 700);
+      }
+      if (button.dataset.save) {
+        const id = button.dataset.save;
+        state.saved = state.saved.includes(id) ? state.saved.filter(x => x !== id) : [...state.saved,id];
+        render();
+        announce(state.saved.includes(id) ? 'Saved in this demo session.' : 'Removed from saved.');
+      }
+      if (button.dataset.hide) { state.hidden.push(button.dataset.hide); render(); announce('Post hidden. Restore it at the end of the feed.'); }
+      if (button.id === 'restore') { state.hidden = []; render(); announce('Hidden posts restored.'); }
+      if (button.id === 'toggle-all') { state.showAll = !state.showAll; render(); }
+      if (button.dataset.chat) { state.chat = button.dataset.chat; state.failed = false; navigate('chat'); }
+      if (button.id === 'send' || button.id === 'fail') {
+        const text = document.getElementById('reply').value.trim();
+        if (!text) return announce('Type a sample reply first.');
+        state.failed = button.id === 'fail';
+        if (!state.failed) state.replies[state.chat].push(text);
+        render();
+        if (state.failed) document.getElementById('reply').value = text;
+        announce(state.failed ? 'Delivery failure simulated; no message sent.' : 'Reply simulated. No external message was sent.');
+      }
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && event.target.id === 'reply') document.getElementById('send').click();
+    });
+    reset();
+  </script>
+</body>
+</html>

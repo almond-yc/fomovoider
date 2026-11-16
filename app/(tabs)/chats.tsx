@@ -53,30 +53,45 @@ export default function ChatsScreen() {
 
   if (!rows) {
     return (
-      <View className="flex-1 bg-background pt-1">
-        {[0, 1, 2, 3, 4, 5].map((i) => (
-          <ConversationRowSkeleton key={i} />
-        ))}
-      </View>
+      <FlatList
+        key="loading"
+        className="flex-1 bg-background"
+        contentContainerClassName="pt-1"
+        contentInsetAdjustmentBehavior="automatic"
+        data={[0, 1, 2, 3, 4, 5]}
+        keyExtractor={String}
+        renderItem={() => <ConversationRowSkeleton />}
+        scrollEnabled={false}
+      />
     );
   }
 
   if (conversations.length === 0) {
     return (
-      <View className="flex-1 bg-background">
-        {banner}
-        <EmptyState
-          icon={MessagesSquare}
-          title="No conversations yet"
-          description="Your messages from every platform will land in this one inbox."
-        />
-      </View>
+      <FlatList
+        key="empty"
+        className="flex-1 bg-background"
+        contentContainerClassName="flex-1"
+        contentInsetAdjustmentBehavior="automatic"
+        data={[]}
+        renderItem={() => null}
+        ListHeaderComponent={banner}
+        ListEmptyComponent={
+          <EmptyState
+            icon={MessagesSquare}
+            title="No conversations yet"
+            description="Your messages from every platform will land in this one inbox."
+          />
+        }
+      />
     );
   }
 
   return (
     <FlatList
+      key="conversations"
       className="flex-1 bg-background"
+      contentInsetAdjustmentBehavior="automatic"
       data={conversations}
       keyExtractor={(c) => c.id}
       ListHeaderComponent={banner}

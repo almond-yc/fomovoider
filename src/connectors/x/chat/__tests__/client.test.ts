@@ -48,6 +48,20 @@ describe("X Chat ids", () => {
     expect(realmTokenFrom(JSON.stringify(keysMe.data[1]!.juicebox_config), "0a0b")).toBe("realm-token-a");
     expect(realmTokenFrom({ token_map: {} }, "0102")).toBeUndefined();
   });
+
+  it("reads the token list X sends: [{ key: realmId, value: { address, token } }]", () => {
+    const config = {
+      key_store_token_map_json: JSON.stringify({ realms: [{ id: "0a0b", address: "https://a.example" }] }),
+      max_guess_count: 20,
+      token_map: [
+        { key: "0A0B", value: { address: "https://a.example", token: "realm-token-a" } },
+        { key: "0c0d", value: { address: "https://c.example", token: "realm-token-c" } },
+      ],
+    };
+    expect(realmTokenFrom(config, "0a0b")).toBe("realm-token-a");
+    expect(realmTokenFrom(JSON.stringify(config), "0c0d")).toBe("realm-token-c");
+    expect(realmTokenFrom(config, "0e0f")).toBeUndefined();
+  });
 });
 
 describe("XChatClient.conversations", () => {

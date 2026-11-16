@@ -27,11 +27,15 @@ export const CHAT_PLATFORMS: Record<string, ChatPlatform> = {
 };
 
 // Why a message can't be sent to this conversation right now, or null when it can.
+// serverChatKeys: the account's X Chat keys are saved on the server
+// (x/chatKeys hasActiveChatKeys), so a locked X Chat row can still be sent to.
 export function sendBlocker(
   conversation: Pick<Doc<"conversations">, "platform" | "unavailable">,
   account: Pick<Doc<"connectedAccounts">, "status"> | null,
+  serverChatKeys = false,
 ): ConnectorError | null {
-  if (conversation.unavailable) return { kind: "unsupported", capability: "sendMessage" };
+  const sendsLocked = serverChatKeys && conversation.platform === "x" && conversation.unavailable?.reason === "locked";
+  if (conversation.unavailable && !sendsLocked) return { kind: "unsupported", capability: "sendMessage" };
   if (!CHAT_PLATFORMS[conversation.platform]?.capabilities.sendMessage) {
     return { kind: "unsupported", capability: "sendMessage" };
   }

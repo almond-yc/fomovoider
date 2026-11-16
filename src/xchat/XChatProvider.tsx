@@ -85,7 +85,7 @@ function XChatEngine({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState<XChatStatus>("loading");
   const [error, setError] = useState<XChatError | null>(null);
-  const [biometricEnabled, setBiometricEnabledState] = useState(true);
+  const [biometricEnabled, setBiometricEnabledState] = useState(false);
   const [passcodeSaved, setPasscodeSaved] = useState(false);
   const biometricAvailable = useMemo(biometricsAvailable, []);
 

@@ -133,6 +133,9 @@ export const processEvent = internalAction({
           sortKey: chat.sortKey,
           keys,
         });
+        if (await ctx.runQuery(internal.x.chatKeys.keysActive, { accountId })) {
+          await ctx.scheduler.runAfter(0, internal.x.chatNode.decryptDelivered, { accountId, conversationId: chat.conversation.id });
+        }
         return null;
       }
       case "post.mention.create":

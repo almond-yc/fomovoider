@@ -11,6 +11,7 @@ import {
 } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
 import { deletePost } from "./lib/posts";
+import { deleteChatKeys } from "./x/chatKeys";
 import {
   vAccountStatus,
   vConnectorError,
@@ -177,6 +178,7 @@ async function resetPlatform(
     )
     .unique();
   if (cursor) await ctx.db.delete(cursor._id);
+  if (platform === "x") await deleteChatKeys(ctx, userId);
   await ctx.scheduler.runAfter(0, internal.accounts.purgeContent, { userId, platform, accountId });
 }
 

@@ -7,7 +7,7 @@ export default defineConfig({
   },
   test: {
     environment: 'edge-runtime',
-    include: ['src/**/*.test.ts', 'convex/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'convex/**/*.test.ts', 'lib/**/*.test.ts'],
     setupFiles: ['src/connectors/x/__tests__/setup.ts'],
     server: { deps: { inline: ['convex-test', /@convex-dev\/(workflow|workpool|batch-worker)/] } },
   },

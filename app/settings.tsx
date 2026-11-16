@@ -1,3 +1,4 @@
+import { useLocalToday } from '@/components/brief/brief-screen';
 import { ConnectionRow } from '@/components/connection-row';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
@@ -10,9 +11,9 @@ import { ScrollView, View } from 'react-native';
 export default function SettingsScreen() {
   const viewer = useQuery(api.users.viewer);
   const { signOut } = useAuthActions();
-  const today = useQuery(api.brief.today);
+  const today = useQuery(api.brief.byDate, { date: useLocalToday() });
   const rerunToday = useMutation(api.brief.rerunToday);
-  const status = today?.brief?.run.status;
+  const status = today?.run.status;
   const running = status === 'collecting' || status === 'judging';
   return (
     <ScrollView
@@ -34,7 +35,7 @@ export default function SettingsScreen() {
         Morning Brief
       </Text>
       <View className="px-5 pt-2">
-        <Button variant="outline" disabled={!today || running} onPress={() => void rerunToday()}>
+        <Button variant="outline" disabled={today === undefined || running} onPress={() => void rerunToday()}>
           <Text>{running ? 'Running…' : "Rerun today's brief"}</Text>
         </Button>
       </View>

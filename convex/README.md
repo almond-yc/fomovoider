@@ -13,8 +13,34 @@ Everything in `convex/` except `convex/<platform>/`:
 - `postStates.ts`: per user and post, `markSeen`, `markOpened`, `setHidden`, `setSaved`, checked against the post's owner. `feed.page` leaves hidden posts out.
 - `retention.ts`: the daily `app:retention` cron (registered with `registerAppCrons` in `crons.ts`) deletes posts past `expiresAt` and posts older than 30 days that the user hasn't saved, with their stored files and states.
 - `lib/validators.ts`: validators for the contract types. Import them instead of redefining.
-- `auth.ts`: Convex Auth with the Password provider (email and password, no verification yet). Needs `JWT_PRIVATE_KEY`, `JWKS` and `SITE_URL` on the deployment.
-- Public functions for the app, all scoped to the signed-in user: `feed.page`, `feed.markCaughtUp`, `postStates.*`, `conversations.list`, `messages.list`, `users.viewer` (the signed-in user's email and connected accounts, or null when signed out; the app's gate and Settings read it), `accounts.list` (never returns sessions), `accounts.connect`, `accounts.disconnect`.
+- `auth.ts`: Convex Auth with the Password provider (email and password, no verification yet) and anonymous sign-in for dev deployments only; Google and Apple are commented out until OAuth credentials exist (see "Sign-in").
+- Public functions for the app, all scoped to the signed-in user: `feed.page`, `feed.markCaughtUp`, `postStates.*`, `conversations.list`, `messages.list`, `users.viewer` (the signed-in user's email, `slopDescription`, `onboardedAt` and connected accounts, or null when signed out; the app's gate and Settings read it), `users.setSlop` (saves the onboarding answer, trimmed and at most 1,000 characters; the first save stamps `onboardedAt`), `accounts.list` (never returns sessions), `accounts.connect`, `accounts.disconnect`.
+
+## Sign-in
+
+`auth.ts` signs users in with email and password through Convex Auth's Password provider (no email service, no verification yet). The app's sign-up and sign-in screens call `signIn("password", { email, password, flow })`.
+
+Google and Apple are written but **commented out** until OAuth credentials exist: the providers in `auth.ts` and `OAUTH_ENABLED` in `components/oauth-buttons.tsx`. With them on, the app calls `signIn("google" | "apple", { redirectTo })`: on web the browser follows the redirect and returns to `SITE_URL` with a `code` the provider handles; on iOS and Android the app opens the provider in `expo-web-browser`'s auth session, gets back `fomovoider://?code=...` (`exp://...` in Expo Go), and finishes with `signIn(provider, { code })`. The `redirect` callback accepts only `SITE_URL` (and paths under it) and `fomovoider://`, plus `exp://` (Expo Go) on deployments that set `AUTH_ALLOW_EXPO_GO=true`.
+
+Convex environment variables (`npx convex env set NAME value`, per deployment):
+
+| Variable | Value |
+| --- | --- |
+| `JWT_PRIVATE_KEY`, `JWKS` | Convex Auth signing keys (already set on dev; `npx @convex-dev/auth` generates them). |
+| `SITE_URL` | Web app origin, e.g. `http://localhost:8081` in dev; OAuth returns to it. |
+| `AUTH_ANONYMOUS_ENABLED` | `true` on dev deployments only. Anything else refuses `signIn("anonymous")`. |
+| `AUTH_ALLOW_EXPO_GO` | `true` on dev deployments only, to accept OAuth redirects to `exp://` (Expo Go). `exp://` can point at any host, so never set it on prod. |
+
+For local testing, set `AUTH_ANONYMOUS_ENABLED=true` on the deployment and `EXPO_PUBLIC_DEV_ANONYMOUS_SIGN_IN=true` in `.env.local`; the sign-in screens then offer "Continue anonymously (dev)".
+
+### Re-enabling Google and Apple
+
+Where `<site>` is the deployment's HTTP Actions URL (`https://groovy-bobcat-759.convex.site` on dev):
+
+1. **Google Cloud**: create an OAuth 2.0 client of type "Web application" with authorized redirect URI `<site>/api/auth/callback/google` (and the OAuth consent screen). Set `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`.
+2. **Apple Developer**: an App ID with Sign in with Apple enabled; a Services ID with domain `<site>` (host only) and return URL `<site>/api/auth/callback/apple`; a Sign in with Apple key (.p8) with its Key ID and your Team ID. Set `AUTH_APPLE_ID` to the Services ID identifier and `AUTH_APPLE_SECRET` to the client-secret JWT signed with the key. Apple caps that JWT at 6 months, so regenerate it before it expires. Apple refuses `localhost`, so it only works through the public `.convex.site` URL.
+3. Check `SITE_URL` is the web app origin, and that `AUTH_ALLOW_EXPO_GO` is unset everywhere but dev.
+4. Uncomment the Google and Apple imports and providers in `convex/auth.ts`, and set `OAUTH_ENABLED = true` in `components/oauth-buttons.tsx`.
 
 ## Connectors own `convex/<platform>/`
 

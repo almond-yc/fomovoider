@@ -24,7 +24,9 @@ const sharedTables = {
   // Convex Auth's users table plus onboarding. slopDescription is the user's
   // own words for what they don't want in their feed (trimmed, at most
   // MAX_SLOP_DESCRIPTION_LENGTH characters, set by users.setSlop);
-  // onboardedAt (epoch ms) is when they first saved it. timeZone is the
+  // onboardedAt (epoch ms) is when they first saved it. connectStepPending is
+  // set with it and cleared by users.finishConnectStep, so the app keeps an
+  // onboarding user on Connect until they tap Continue. timeZone is the
   // device's IANA zone (brief.setTimeZone) the Morning Brief runs in; unset
   // means America/Los_Angeles.
   users: defineTable({
@@ -37,6 +39,7 @@ const sharedTables = {
     isAnonymous: v.optional(v.boolean()),
     slopDescription: v.optional(v.string()),
     onboardedAt: v.optional(v.number()),
+    connectStepPending: v.optional(v.boolean()),
     timeZone: v.optional(v.string()),
   })
     .index("email", ["email"])

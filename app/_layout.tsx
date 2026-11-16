@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { NAV_THEME, TITLE_FONT } from '@/lib/theme';
 import { api } from '@/convex/_generated/api';
+import { gate, type XChatStep } from '@/lib/onboarding-gate';
 import { XChatOnboardingContext } from '@/lib/x-chat-passcode';
 import { DM_HOST_PROPS, InstagramDms } from '@/src/instagram/dms/InstagramDms';
 import { InstagramWebViewHost } from '@/src/instagram/webview/InstagramWebViewHost';
@@ -58,15 +59,14 @@ export default function RootLayout() {
   );
 }
 
-// Signed out: sign up or sign in. Signed in without an answer to "What's slop
-// for you?": onboarding. No connected account: the Connect screen. Otherwise
-// the tabs and Settings. Connecting X from the Connect screen first asks for
-// the X Chat passcode, once.
+// Picks the screen from users.viewer through gate() in lib/onboarding-gate.ts:
+// sign up or sign in, onboarding, Connect (with the X Chat passcode step after
+// Connect X), then the tabs and Settings.
 function RootNavigator() {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const viewer = useQuery(api.users.viewer, isAuthenticated ? {} : 'skip');
   const ready = !isLoading && (!isAuthenticated || viewer !== undefined);
-  const [xChatStep, setXChatStep] = useState<'idle' | 'connecting' | 'asking' | 'done'>('idle');
+  const [xChatStep, setXChatStep] = useState<XChatStep>('idle');
   const xChatOnboarding = useMemo(() => ({ finish: () => setXChatStep('done') }), []);
 
   useEffect(() => {
@@ -75,32 +75,26 @@ function RootNavigator() {
 
   if (!ready) return null;
 
-  const signedIn = isAuthenticated && viewer !== null;
-  const onboarded = viewer?.onboardedAt !== undefined;
-  const connected = viewer?.accounts.some((a) => a.status === 'active') ?? false;
-  const xConnected = viewer?.accounts.some((a) => a.platform === 'x' && a.status === 'active') ?? false;
-
-  if (!signedIn && xChatStep !== 'idle') setXChatStep('idle');
-  if (xChatStep === 'idle' && signedIn && onboarded && !connected) setXChatStep('connecting');
-  if (xChatStep === 'connecting' && connected) setXChatStep(xConnected ? 'asking' : 'done');
-  const askXChatPasscode = xChatStep === 'asking';
+  const { screen, step } = gate(isAuthenticated ? (viewer ?? null) : null, xChatStep);
+  if (step !== xChatStep) setXChatStep(step);
+  const signedIn = screen !== 'auth';
 
   return (
-    <XChatOnboardingContext.Provider value={askXChatPasscode ? xChatOnboarding : null}>
+    <XChatOnboardingContext.Provider value={screen === 'xChatPasscode' ? xChatOnboarding : null}>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="sign-up" />
           <Stack.Screen name="sign-in" />
         </Stack.Protected>
-        <Stack.Protected guard={signedIn && !onboarded}>
+        <Stack.Protected guard={screen === 'onboarding'}>
           <Stack.Screen name="onboarding" />
         </Stack.Protected>
         <Stack.Protected
-          guard={signedIn && onboarded && !connected}
-          redirectTo={askXChatPasscode ? '/x-chat-passcode' : undefined}>
+          guard={screen === 'connect'}
+          redirectTo={screen === 'xChatPasscode' ? '/x-chat-passcode' : undefined}>
           <Stack.Screen name="connect" />
         </Stack.Protected>
-        <Stack.Protected guard={signedIn && onboarded && connected && !askXChatPasscode}>
+        <Stack.Protected guard={screen === 'app'}>
           <Stack.Screen
             name="(tabs)"
             options={{
@@ -126,7 +120,9 @@ function RootNavigator() {
           <Stack.Screen name="chat/[id]" />
           <Stack.Screen name="x-chat" />
         </Stack.Protected>
-        <Stack.Protected guard={signedIn && onboarded && connected}>
+        <Stack.Protected
+          guard={screen === 'app' || screen === 'xChatPasscode'}
+          redirectTo={screen === 'connect' ? '/connect' : undefined}>
           <Stack.Screen name="x-chat-passcode" />
         </Stack.Protected>
         <Stack.Screen name="feed-preview" />

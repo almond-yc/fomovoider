@@ -15,7 +15,7 @@ import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 // The X Chat passcode: in onboarding right after Connect X (with Skip for
-// now), and from Settings to set, change or re-enter it. The consent comes
+// now, both back to Connect), and from Settings to set, change or re-enter it. The consent comes
 // before the first entry on this phone. The passcode only lives in this
 // screen's state until it is sent to api.x.chatNode.setPasscode.
 export default function XChatPasscodeScreen() {
@@ -34,10 +34,10 @@ export default function XChatPasscodeScreen() {
 
   useEffect(() => () => setPasscodeInput(''), []);
 
-  // Finishing the onboarding step opens the tabs; this screen stays reachable
-  // from Settings, so the gate doesn't move away from it on its own.
+  // Finishing the onboarding step returns to Connect, where the user can
+  // connect another account or continue into the app.
   useEffect(() => {
-    if (onboarding && !onboardingStep) router.replace('/');
+    if (onboarding && !onboardingStep) router.replace('/connect');
   }, [onboarding, onboardingStep]);
 
   function leave() {

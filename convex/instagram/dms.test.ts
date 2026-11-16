@@ -5,10 +5,14 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
 import inbox from "../../src/instagram/dms/__fixtures__/dm-inbox.json";
-import { emptyCapture, parseInbox } from "../../src/instagram/dms/parse";
+import detail from "../../src/instagram/dms/__fixtures__/dm-thread-detail.json";
+import { emptyCapture, parseInbox, parseThreadDetail } from "../../src/instagram/dms/parse";
 
 const modules = import.meta.glob("/convex/**/*.ts");
-const me = { id: "instagram:nico", platform: "instagram", handle: "nico", displayName: "Nico" };
+// The fixtures' viewer (a thread detail carries its username) is the
+// connected account.
+const viewer = parseThreadDetail(detail).viewer!;
+const me = { id: "instagram:" + viewer.handle, platform: "instagram", handle: viewer.handle, displayName: "Nico" };
 
 async function connected() {
   const t = convexTest(schema, modules);
@@ -25,8 +29,8 @@ async function connected() {
 }
 
 async function submitInbox(as: Awaited<ReturnType<typeof connected>>["as"]) {
-  const { seqIds: _s, changed: _c, ...capture } = parseInbox(inbox, emptyCapture());
-  await as.mutation(api.instagram.dms.submit, capture);
+  const { seqIds: _s, changed: _c, viewer: _v, ...capture } = parseInbox(inbox, emptyCapture());
+  await as.mutation(api.instagram.dms.submit, { ...capture, viewer, viewerIds: [...capture.viewerIds, viewer.fbid] });
   return capture;
 }
 
@@ -47,7 +51,7 @@ describe("instagram dms", () => {
     expect(stored.length).toBe(new Set(capture.messages.map((m) => m.id)).size);
     const mine = stored.filter((m) => m.isMine);
     expect(mine.length).toBeGreaterThan(0);
-    expect(mine.every((m) => m.sender.handle === "nico")).toBe(true);
+    expect(mine.every((m) => m.sender.handle === me.handle)).toBe(true);
     expect(stored.filter((m) => !m.isMine).every((m) => m.sender.handle.startsWith("user_") || m.sender.displayName)).toBe(true);
   });
 
@@ -57,7 +61,7 @@ describe("instagram dms", () => {
     const thread = capture.threads[0];
     const before = (await conversations(t)).find((c) => c.id === thread.id)!;
     const other = thread.members[0];
-    const base = { senders: [], receipts: [], threads: [], viewerIds: [] };
+    const base = { senders: [], receipts: [], threads: [], viewer, viewerIds: [viewer.fbid] };
     await as.mutation(api.instagram.dms.submit, {
       ...base,
       messages: [
@@ -103,7 +107,8 @@ describe("instagram dms", () => {
 
     // The socket's copy of the same message replaces it as delivered.
     await as.mutation(api.instagram.dms.submit, {
-      viewerIds: [],
+      viewer,
+      viewerIds: [viewer.fbid],
       threads: [],
       senders: [],
       receipts: [],
@@ -186,13 +191,13 @@ describe("instagram dms", () => {
     const { t, as, accountId } = await connected();
     const capture = await submitInbox(as);
     const conversationId = capture.threads[0].id;
-    const viewer = capture.viewerIds[0];
+    const viewerFbid = viewer.fbid;
 
     // A replay of an earlier "ok" doesn't touch the pending one.
     const pending = await t.mutation(internal.instagram.send.message, { accountId, conversationId, text: "ok" });
     await as.mutation(api.instagram.dms.submit, {
-      viewerIds: [], threads: [], senders: [], receipts: [],
-      messages: [{ id: "instagram:mid.$old", conversationId, senderFbid: viewer, sentAt: new Date(pending.sentAt - 60_000).toISOString(), text: "ok", media: [] }],
+      viewer, viewerIds: [viewer.fbid], threads: [], senders: [], receipts: [],
+      messages: [{ id: "instagram:mid.$old", conversationId, senderFbid: viewerFbid, sentAt: new Date(pending.sentAt - 60_000).toISOString(), text: "ok", media: [] }],
     });
     expect((await messages(t, conversationId)).some((m) => m.id === pending.id)).toBe(true);
 
@@ -209,5 +214,36 @@ describe("instagram dms", () => {
     expect(await as.mutation(api.instagram.dms.claim, { outboxId: item.outboxId })).toBeNull();
     expect((await messages(t, conversationId)).find((m) => m.id === late.id)?.delivery?.status).toBe("failed");
     vi.useRealTimers();
+  });
+
+  test("another account's DMs are refused: a batch from a different Instagram user, and claims before this account's page is verified", async () => {
+    const { t, as, accountId, userId } = await connected();
+    const { seqIds: _s, changed: _c, viewer: _v, ...capture } = parseInbox(inbox, emptyCapture());
+    // User B signed in while the phone's page is still logged in as A.
+    await expect(
+      as.mutation(api.instagram.dms.submit, { ...capture, viewer: { handle: "someone_else", fbid: viewer.fbid }, viewerIds: [viewer.fbid] }),
+    ).rejects.toThrow(/different Instagram account/);
+    await expect(
+      as.mutation(api.instagram.dms.submit, { ...capture, viewer, viewerIds: ["1"] }),
+    ).rejects.toThrow(/different Instagram account/);
+    expect(await conversations(t)).toEqual([]);
+    expect(await t.run((ctx) => ctx.db.query("messages").collect())).toEqual([]);
+
+    // Viewer ids verified for an earlier identity don't carry over.
+    await t.run((ctx) => ctx.db.insert("instagram_dmState", { userId, viewerIds: ["stale"], meId: "instagram:previous" }));
+    await submitInbox(as);
+    const state = await t.run((ctx) => ctx.db.query("instagram_dmState").unique());
+    expect(state?.meId).toBe(me.id);
+    expect(state?.viewerIds).not.toContain("stale");
+
+    // Claims wait until a verified batch for this identity has arrived.
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("instagram_dmState").unique();
+      await ctx.db.patch(row!._id, { meId: "instagram:previous" });
+    });
+    await t.mutation(internal.instagram.send.message, { accountId, conversationId: capture.threads[0].id, text: "hi" });
+    const [item] = await as.query(api.instagram.dms.outbox, {});
+    expect(await as.mutation(api.instagram.dms.claim, { outboxId: item.outboxId })).toBeNull();
+    expect(await as.query(api.instagram.dms.outbox, {})).toHaveLength(1);
   });
 });

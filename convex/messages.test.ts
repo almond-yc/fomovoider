@@ -9,7 +9,8 @@ import { fixtures } from "../src/connectors/x/fixtures";
 import { createFixtureFetch } from "../src/connectors/x/mock";
 import { XConnector } from "../src/connectors/x/connector";
 import inbox from "../src/instagram/dms/__fixtures__/dm-inbox.json";
-import { emptyCapture, parseInbox } from "../src/instagram/dms/parse";
+import detail from "../src/instagram/dms/__fixtures__/dm-thread-detail.json";
+import { emptyCapture, parseInbox, parseThreadDetail } from "../src/instagram/dms/parse";
 
 const modules = import.meta.glob("./**/*.ts");
 const CONVERSATION = "x:1234567890-2244994945";
@@ -271,7 +272,9 @@ describe("messages.markRead", () => {
 });
 
 describe("Instagram", () => {
-  const me = { id: "instagram:nico", platform: "instagram", handle: "nico", displayName: "Nico" };
+  // The fixtures' logged-in user (from a thread detail) is the connected account.
+  const viewer = parseThreadDetail(detail).viewer!;
+  const me = { id: "instagram:" + viewer.handle, platform: "instagram", handle: viewer.handle, displayName: "Nico" };
 
   async function instagramSetup() {
     const t = convexTest(schema, modules);
@@ -282,8 +285,8 @@ describe("Instagram", () => {
       return { userId, as };
     };
     const submitInbox = async (as: Awaited<ReturnType<typeof signUp>>["as"]) => {
-      const { seqIds: _s, changed: _c, ...capture } = parseInbox(inbox, emptyCapture());
-      await as.mutation(api.instagram.dms.submit, capture);
+      const { seqIds: _s, changed: _c, viewer: _v, ...capture } = parseInbox(inbox, emptyCapture());
+      await as.mutation(api.instagram.dms.submit, { ...capture, viewer, viewerIds: [...capture.viewerIds, viewer.fbid] });
       return capture;
     };
     const outbox = () => t.run((ctx) => ctx.db.query("instagram_outbox").collect());

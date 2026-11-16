@@ -1,11 +1,17 @@
 import { describe, expect, test } from "vitest";
 import type { HookMessage } from "../hook";
 import inbox from "./__fixtures__/dm-inbox.json";
+import detail from "./__fixtures__/dm-thread-detail.json";
+import { parseThreadDetail } from "./parse";
 import sendError from "./__fixtures__/dm-send-error.json";
 import { CLICK_SEND_JS, CLEAR_COMPOSER_JS, PAGE_STATE_JS } from "./page";
 import { createDmCapture, deliver, type DmApi, type DmSubmit } from "./sync";
 
 type Listener = (m: HookMessage) => void;
+
+// The fixtures' logged-in user, as a thread detail shows it.
+const VIEWER = parseThreadDetail(detail).viewer!.handle;
+const detailResponse: HookMessage = { type: "ig:response", operation: "IGDThreadDetailQuery", status: 200, body: JSON.stringify(detail) };
 
 // A fake instagram.com page: an inbox with one chat row, a composer that
 // collects typed text, and a Send button that answers with sendResponse.
@@ -65,8 +71,9 @@ const api = (submitted: DmSubmit[] = []): DmApi => ({
 
 function harness(sendResponse: unknown) {
   const fake = fakePage(sendResponse);
-  const capture = createDmCapture({ api: api(), onStale: () => undefined, setTimer: (fn, ms) => setTimeout(fn, Math.min(ms, 5)) });
+  const capture = createDmCapture({ api: api(), expectedHandle: () => VIEWER, onStale: () => undefined, setTimer: (fn, ms) => setTimeout(fn, Math.min(ms, 5)) });
   fake.page.onMessage(capture.handle);
+  capture.handle(detailResponse);
   const deps = { page: fake.page, capture, api: api(), killed: () => false, sleep: async () => undefined, random: () => 0 };
   return { ...fake, deps };
 }
@@ -104,10 +111,14 @@ describe("instagram dm delivery", () => {
   test("capture streams the inbox to Convex and flags a sequence gap as stale", async () => {
     const submitted: DmSubmit[] = [];
     let stale = 0;
-    const capture = createDmCapture({ api: api(submitted), onStale: () => stale++, setTimer: (fn) => setTimeout(fn, 0) });
+    const capture = createDmCapture({ api: api(submitted), expectedHandle: () => VIEWER, onStale: () => stale++, setTimer: (fn) => setTimeout(fn, 0) });
     capture.handle({ type: "ig:response", operation: "PolarisDirectInboxMobileQuery", status: 200, body: JSON.stringify(inbox) });
     await capture.flush();
+    expect(submitted).toEqual([]);
+    capture.handle(detailResponse);
+    await capture.flush();
     expect(submitted[0].threads).toHaveLength(4);
+    expect(submitted[0].viewer.handle).toBe(VIEWER);
     const delta = (seq: number) => ({
       type: "ig:ws" as const,
       payloads: [JSON.stringify([{ data: { slide_delta_processor: [{ __typename: "SlideUQPPCreateReaction", uq_seq_id: String(seq) }] } }])],
@@ -134,13 +145,39 @@ describe("instagram dm delivery", () => {
 
   test("inbox snippet and detail copies of one message keep the detail's media", async () => {
     const submitted: DmSubmit[] = [];
-    const capture = createDmCapture({ api: api(submitted), onStale: () => undefined, setTimer: () => undefined });
-    const detail = await import("./__fixtures__/dm-thread-detail.json");
+    const capture = createDmCapture({ api: api(submitted), expectedHandle: () => VIEWER, onStale: () => undefined, setTimer: () => undefined });
     capture.handle({ type: "ig:response", operation: "PolarisDirectInboxMobileQuery", status: 200, body: JSON.stringify(inbox) });
-    capture.handle({ type: "ig:response", operation: "IGDThreadDetailQuery", status: 200, body: JSON.stringify(detail.default) });
+    capture.handle({ type: "ig:response", operation: "IGDThreadDetailQuery", status: 200, body: JSON.stringify(detail) });
     await capture.flush();
     const copies = submitted[0].messages.filter((m) => m.id === "instagram:mid.$10000004102042");
     expect(copies.length).toBe(2);
     expect(Math.max(...copies.map((m) => m.media.length))).toBeGreaterThan(0);
+  });
+
+  test("user A's page under user B: nothing is submitted and no send runs", async () => {
+    const submitted: DmSubmit[] = [];
+    let expected: string | undefined = "user_b";
+    const capture = createDmCapture({ api: api(submitted), expectedHandle: () => expected, onStale: () => undefined, setTimer: () => undefined });
+    capture.handle({ type: "ig:response", operation: "PolarisDirectInboxMobileQuery", status: 200, body: JSON.stringify(inbox) });
+    capture.handle(detailResponse);
+    await capture.flush();
+    expect(submitted).toEqual([]);
+    expect(capture.verified()).toBe(false);
+
+    const h = harness({ data: { xig_direct_text_send_with_slide_messaging_response: { message_id: "mid.$1" } } });
+    const result = await deliver({ outboxId: "o1", kind: "send", threadKey: "123", text: "hi" }, { ...h.deps, capture });
+    expect(result.ok).toBe(false);
+    expect(h.calls).toEqual([]);
+
+    // Signed in as A, verified; then B signs in: what A captured is dropped.
+    expected = VIEWER;
+    capture.handle({ type: "ig:response", operation: "PolarisDirectInboxMobileQuery", status: 200, body: JSON.stringify(inbox) });
+    capture.handle(detailResponse);
+    expect(capture.verified()).toBe(true);
+    expected = "user_b";
+    capture.reset();
+    await capture.flush();
+    expect(submitted).toEqual([]);
+    expect(capture.verified()).toBe(false);
   });
 });

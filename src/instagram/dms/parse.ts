@@ -50,7 +50,15 @@ export interface DmReceipt {
   watermark: number;
 }
 
+export interface DmViewer {
+  handle: string;
+  fbid: string;
+}
+
 export interface DmCapture {
+  // Who the page is logged in as, from a thread's viewer (thread details carry
+  // the username). DM data is only kept once this matches the account.
+  viewer?: DmViewer;
   // The viewer's messaging ids (the user fbid and the mailbox id); a sender
   // or receipt with one of them is the viewer.
   viewerIds: string[];
@@ -183,6 +191,7 @@ function readThread(t: Json, out: DmCapture, withThread: boolean) {
   const id = conversationId(t.thread_fbid ?? t.id);
   const viewerFbid = str(t.viewer?.interop_messaging_user_fbid);
   if (viewerFbid && !out.viewerIds.includes(viewerFbid)) out.viewerIds.push(viewerFbid);
+  if (viewerFbid && t.viewer?.username) out.viewer ??= { handle: String(t.viewer.username), fbid: viewerFbid };
   const messages: DmMessage[] = [];
   for (const edge of t.slide_messages?.edges ?? []) {
     const message = parseMessage(edge?.node, id);

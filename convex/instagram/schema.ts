@@ -143,6 +143,8 @@ export const instagramTables = {
   instagram_dmState: defineTable({
     userId: v.id("users"),
     viewerIds: v.array(v.string()),
+    // The Instagram identity (account.me.id) viewerIds were verified for.
+    meId: v.optional(v.string()),
     lastSyncAt: v.optional(v.number()),
   }).index("by_userId", ["userId"]),
 

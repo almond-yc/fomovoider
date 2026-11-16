@@ -32,6 +32,14 @@ export function InstagramDms() {
   const killed = useRef(false);
   killed.current = state?.killSwitch ?? false;
   const inFlight = useRef(new Set<string>());
+  // The connected Instagram handle (meId is instagram:<username>). Nothing
+  // is read or sent until the page shows it is logged in as this user.
+  const meId = state?.meId;
+  const expected = useRef<string | undefined>(undefined);
+  expected.current = meId?.startsWith("instagram:") ? meId.slice("instagram:".length) : undefined;
+  // Bumped when the Fomovoider user or their Instagram account changes;
+  // queued tasks from before then do nothing.
+  const generation = useRef(0);
 
   const dmApi = useMemo<DmApi>(
     () => ({
@@ -44,29 +52,45 @@ export function InstagramDms() {
   );
 
   const sync = useRef<(trigger: SyncTrigger) => void>(() => undefined);
-  const capture = useMemo(() => createDmCapture({ api: dmApi, onStale: () => sync.current("realtime") }), [dmApi]);
+  const capture = useMemo(
+    () => createDmCapture({ api: dmApi, expectedHandle: () => expected.current, onStale: () => sync.current("realtime") }),
+    [dmApi],
+  );
   const deps = (page: PageControl): DmTaskDeps => ({ page, capture, api: dmApi, killed: () => killed.current, sleep });
 
   sync.current = (trigger) => {
-    if (status !== "ready" || killed.current) return;
-    void run((page) => syncInbox(trigger, deps(page))).catch(() => undefined);
+    if (status !== "ready" || killed.current || !expected.current) return;
+    const queued = generation.current;
+    void run(async (page) => {
+      if (queued === generation.current) await syncInbox(trigger, deps(page));
+    }).catch(() => undefined);
   };
 
   useEffect(() => onMessage(capture.handle), [onMessage, capture]);
 
+  // A different Fomovoider user (or Instagram account): drop what was
+  // captured and the work queued for the previous one.
   useEffect(() => {
-    if (status !== "ready") return;
+    generation.current++;
+    capture.reset();
+    inFlight.current.clear();
+  }, [meId, capture]);
+
+  useEffect(() => {
+    if (status !== "ready" || !meId) return;
     sync.current("open");
     const sub = AppState.addEventListener("change", (s) => s === "active" && sync.current("open"));
     return () => sub.remove();
-  }, [status]);
+  }, [status, meId]);
 
   useEffect(() => {
-    if (status !== "ready") return;
+    if (status !== "ready" || !meId) return;
+    const queued = generation.current;
     for (const { outboxId } of outbox ?? []) {
       if (inFlight.current.has(outboxId)) continue;
       inFlight.current.add(outboxId);
       void run(async (page) => {
+        if (queued !== generation.current || !capture.verified()) return;
         const task = await claim({ outboxId });
         if (!task) return;
         const result = await deliver(task, deps(page));
@@ -75,7 +99,7 @@ export function InstagramDms() {
         .catch(() => undefined)
         .finally(() => inFlight.current.delete(outboxId));
     }
-  }, [outbox, status]);
+  }, [outbox, status, meId]);
 
   return null;
 }

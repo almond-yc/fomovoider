@@ -65,6 +65,10 @@ export interface RefreshDeps {
   onWifi(): Promise<boolean>;
   // True once the kill switch is on (convex instagram/webview:state).
   killed(): boolean;
+  // The connected account's Person.id. A page logged in as anyone else
+  // (another person's cookies on this phone) stops the refresh before
+  // anything is sent.
+  expectedViewerId?: string;
   sleep(ms: number): Promise<void>;
   now?: () => number;
   random?: () => number;
@@ -120,6 +124,7 @@ export async function runRefresh(trigger: "open" | "background" | "manual", deps
   let posts = 0;
   let stories = 0;
   let received = 0;
+  let otherAccount: string | undefined;
 
   const unsubscribe = deps.page.onMessage((message) => {
     if (message.type === "ig:location") {
@@ -135,6 +140,7 @@ export async function runRefresh(trigger: "open" | "background" | "manual", deps
     if (!docs.length) return;
     const parsed = extract(docs, trayOrder);
     received++;
+    if (parsed.viewer && deps.expectedViewerId && parsed.viewer.id !== deps.expectedViewerId) otherAccount = parsed.viewer.id;
     for (const reel of parsed.tray) {
       tray.set(reel.reelId, reel);
       trayOrder.set(reel.reelId, reel.position);
@@ -151,6 +157,7 @@ export async function runRefresh(trigger: "open" | "background" | "manual", deps
   const check = () => {
     if (tripwire) throw new Abort("tripwire");
     if (deps.killed()) throw new Abort("kill switch");
+    if (otherAccount) throw new Abort(`logged in to Instagram as ${otherAccount}, not the connected account`);
   };
   const pause = async (min: number, max: number) => {
     await deps.sleep(min + random() * (max - min));

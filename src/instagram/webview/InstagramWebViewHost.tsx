@@ -97,6 +97,10 @@ export function InstagramWebViewHost({ children, operations = [] }: { children: 
   const loadWaiters = useRef(new Set<(url: string) => void>());
   const killed = useRef(false);
   killed.current = state?.killSwitch ?? false;
+  const loginVisibleRef = useRef(loginVisible);
+  loginVisibleRef.current = loginVisible;
+  const meIdRef = useRef<string | undefined>(undefined);
+  meIdRef.current = state?.meId;
 
   const hookKey = useMemo(() => "_" + Math.random().toString(36).slice(2, 10), []);
   const hookJs = useMemo(
@@ -193,6 +197,7 @@ export function InstagramWebViewHost({ children, operations = [] }: { children: 
           uploadFile,
           onWifi: async () => (await getNetworkStateAsync()).type === NetworkStateType.WIFI,
           killed: () => killed.current,
+          expectedViewerId: meIdRef.current,
           sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
         });
         setLastRefresh(result);
@@ -212,10 +217,15 @@ export function InstagramWebViewHost({ children, operations = [] }: { children: 
       if (message.type === "ig:result") return results.current.get(message.id)?.(message);
       if (message.type === "ig:ssr") {
         const viewer = extract(message.scripts.flatMap(parseResponseText)).viewer;
-        if (viewer) {
+        // Only the visible login connects an identity. A background load
+        // logged in as someone else (cookies outlive a Fomovoider sign-out)
+        // is stopped by the refresh's identity check instead.
+        if (viewer && loginVisibleRef.current) {
           setLoggedIn(true);
           setLoginVisible(false);
           void connect({ me: viewer, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+        } else if (viewer) {
+          setLoggedIn(viewer.id === meIdRef.current);
         }
       }
       if (message.type === "ig:location" && tripwireFor(message.href)?.kind === "login") setLoggedIn(false);

@@ -325,6 +325,9 @@ export const state = query({
   returns: v.object({
     connected: v.boolean(),
     accountStatus: v.optional(v.string()),
+    // The Instagram identity this user connected (Person.id), so the app
+    // never reads another account whose cookies the phone holds.
+    meId: v.optional(v.string()),
     killSwitch: v.boolean(),
     pausedUntil: v.optional(v.number()),
     pauseReason: v.optional(v.string()),
@@ -336,6 +339,7 @@ export const state = query({
     return {
       connected: device?.transport === "webview" && account !== null,
       accountStatus: account?.status,
+      meId: account?.me?.id,
       killSwitch: (await killSwitch(ctx)) !== null,
       pausedUntil: device?.pausedUntil,
       pauseReason: device?.pauseReason,

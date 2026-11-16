@@ -149,6 +149,15 @@ describe("runRefresh", () => {
     expect(submitted.every((i) => i.media.every((m: any) => m.storageId === undefined))).toBe(true);
   });
 
+  test("a page logged in as another Instagram account sends nothing", async () => {
+    const { api } = fakeApi();
+    const result = await runRefresh("open", deps(fakePage(), api, { expectedViewerId: "instagram:someone_else" }));
+    expect(result).toMatchObject({ outcome: "failed", error: expect.stringContaining("instagram:viewer_me") });
+    expect(api.submit).not.toHaveBeenCalled();
+    const ok = fakeApi();
+    expect((await runRefresh("open", deps(fakePage(), ok.api, { expectedViewerId: "instagram:viewer_me" }))).outcome).toBe("done");
+  });
+
   test("a challenge page aborts the refresh before anything is sent", async () => {
     const page = fakePage({ [HOME_URL]: [{ type: "ig:location", href: "https://www.instagram.com/challenge/?next=/", title: "Instagram" }] });
     const { api } = fakeApi();

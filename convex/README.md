@@ -123,6 +123,17 @@ All internal, called with `ctx.runQuery` / `ctx.runMutation` from a sync action.
 
 `feed.page` merges every platform newest first, hides items whose `expiresAt` has passed (stories), hides posts whose `relevance.score` is below `RELEVANCE_THRESHOLD` (`feed.ts`; unscored posts are shown), and stops at each platform's `seenUntil`. It returns `caughtUp: true` only on the last page when every connected platform's connector reported `caughtUp` on its latest page; then the app shows "You're all caught up" and calls `feed.markCaughtUp({ until })` with the newest `createdAt` it showed. `usePaginatedQuery` keeps only each page's items, so the app reads `feed.connectorsCaughtUp` instead: the feed is caught up when the hook reports `Exhausted` and that query is true. `markCaughtUp` only moves `seenUntil` for platforms whose connector has caught up, so posts from a platform still paging are never skipped. `accounts.disconnect` deletes the platform's cursor and cached content.
 
+## Morning Brief (`convex/brief/`)
+
+Every morning at 6:30 in each onboarded user's time zone (`users.timeZone`, set by the app through `brief.setTimeZone`, default America/Los_Angeles) the hourly `brief:dispatch` cron starts one `@convex-dev/workflow` run per user and local date (`brief/workflow.ts`):
+
+1. **Collect**: queues an Instagram run (`instagram/devices:runNowForUser`) and runs X's `syncAccount`, then polls the Instagram run for up to 20 minutes. A missing, paused, offline or slow source is recorded in `brief_runs.skipped`; it never fails the run.
+2. **Select**: posts created since the previous brief's cutoff (24 h for the first), not expired, not hidden, with no verdict, newest first, at most 200. Sponsored posts (`post.sponsored` or `instagram_postFacts.sponsored`) get an `ad` verdict without a model call.
+3. **Judge**: each post goes through the `briefJudgePool` workpool (5 at a time, retried with backoff) to `brief/judge:judgePost`, a LangChain agent on `gpt-6.1-sol` that sees the text, the facts, and up to 8 images (downscaled images, 3 GIF frames, a video's poster plus 4 keyframes via ffmpeg-static, quoted media last), and can call `inspect_video` for more frames. One verdict per post (`brief_verdicts`).
+4. **Save**: `brief_items` ranked by priority, then recency, with the media indices the agent kept.
+
+The app reads `brief.today`, `brief.byDate` and `brief.dates`. Retention deletes a post's verdict and brief item with the post (`lib/posts.ts`). Needs `OPENAI_API_KEY` on the deployment; without it every post is counted as failed and the brief comes out empty. To run one now on a local backend: `npx convex run brief/crons:startNow '{"userId": "..."}'`.
+
 ## Checks
 
 `npm test` (convex-test), `npx tsc --noEmit -p convex`, `npx convex codegen`.

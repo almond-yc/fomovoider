@@ -44,8 +44,8 @@ export const passcodeStatus = query({
   },
 });
 
-// Deletes the saved X Chat keys of the viewer's X user, for every app account
-// linked to it. Already-decrypted messages stay in the inbox; new X Chat
+// Deletes the saved X Chat keys of the viewer's currently connected X user,
+// for every app account linked to it. Already-decrypted messages stay in the inbox; new X Chat
 // messages show as locked until a passcode is set again.
 export const removePasscode = mutation({
   args: {},
@@ -53,9 +53,7 @@ export const removePasscode = mutation({
   handler: async (ctx) => {
     const userId = await requireUserId(ctx);
     const account = await viewerAccount(ctx, userId);
-    const sealed = await ctx.db.query("x_chat_keys").withIndex("by_userId", (q) => q.eq("userId", userId)).collect();
-    const xUserIds = new Set([...sealed.map((row) => row.xUserId), ...(account?.me ? [account.me.id] : [])]);
-    for (const xUserId of xUserIds) await deleteKeysOf(ctx, xUserId);
+    if (account?.me) await deleteKeysOf(ctx, account.me.id);
     return null;
   },
 });

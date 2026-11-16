@@ -407,6 +407,36 @@ describe("X Chat passcode", () => {
     expect(await t.run((ctx) => ctx.db.query("x_chat_keys").collect())).toEqual([]);
   });
 
+  test("opening a locked X Chat row decrypts it on demand once keys are saved", async () => {
+    stubX();
+    const { t, accountId, as } = await setup();
+    await t.action(internal.x.chat.syncAccount, { accountId });
+    await settle(t);
+    expect(await as.action(api.x.chatNode.decryptConversation, { conversationId: ONE_TO_ONE })).toEqual({ readable: false });
+    await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
+    expect(await as.action(api.x.chatNode.decryptConversation, { conversationId: ONE_TO_ONE })).toEqual({ readable: true });
+    const [row] = await t.run((ctx) => ctx.db.query("conversations").collect());
+    expect(row.unavailable).toBeUndefined();
+  });
+
+  test("removePasscode only removes the caller's current X identity's keys", async () => {
+    stubX();
+    const { t, as, userId } = await setup();
+    const otherUser = await t.run((ctx) => ctx.db.insert("users", {}));
+    const other = t.withIdentity({ subject: `${otherUser}|session` });
+    const otherAccount = await other.mutation(api.accounts.connect, {
+      session: { platform: "x", kind: "oauth", accessToken: "access-2", refreshToken: "refresh-2", expiresAt: "2099-01-01T00:00:00.000Z" },
+    });
+    await t.mutation(internal.accounts.verifyIdentity, { accountId: otherAccount, me });
+    await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
+    await t.run(async (ctx) => {
+      const mine = await ctx.db.query("connectedAccounts").withIndex("by_userId_and_platform", (q) => q.eq("userId", userId).eq("platform", "x")).unique();
+      await ctx.db.patch(mine!._id, { me: { id: "x:999", platform: "x", handle: "new", displayName: "New" } });
+    });
+    await as.mutation(api.x.chatKeys.removePasscode, {});
+    expect(await other.query(api.x.chatKeys.passcodeStatus, {})).toEqual({ status: "active" });
+  });
+
   test("messages.send sends X Chat messages encrypted on the server", async () => {
     const calls = stubX();
     const { t, accountId, as } = await setup();

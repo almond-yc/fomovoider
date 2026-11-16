@@ -1,9 +1,9 @@
 import { Text } from "@/components/ui/text";
 import { api } from "@/convex/_generated/api";
 import { useXChatMessages } from "@/src/xchat";
-import { useConvexAuth, useQuery } from "convex/react";
-import { router, Stack, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
+import { useAction, useConvexAuth, useQuery } from "convex/react";
+import { Redirect, router, Stack, useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, TextInput, View } from "react-native";
 
 // TEMPORARY: a stopgap X Chat conversation view for testing. Delete once the
@@ -13,11 +13,20 @@ export default function XChatThreadScreen() {
   const { isAuthenticated } = useConvexAuth();
   const conversation = useQuery(api.x.chat.conversation, isAuthenticated ? { conversationId: id } : "skip");
   const chat = useXChatMessages(conversation);
+  const keys = useQuery(api.x.chatKeys.passcodeStatus, isAuthenticated ? {} : "skip");
+  const decryptConversation = useAction(api.x.chatNode.decryptConversation);
+  const [decrypted, setDecrypted] = useState(false);
+  const onServer = keys?.status === "active";
+  useEffect(() => {
+    if (!onServer || !id) return;
+    void decryptConversation({ conversationId: id }).finally(() => setDecrypted(true));
+  }, [onServer, id, decryptConversation]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const name = conversation?.title ?? conversation?.participants.map((p) => p.displayName || `@${p.handle}`).join(", ");
 
+  if (onServer) return decrypted ? <Redirect href={{ pathname: "/chat/[id]", params: { id } }} /> : <Text className="p-6 text-muted-foreground">Decrypting\u2026</Text>;
   if (!chat) {
     return <Text className="p-6 text-muted-foreground">{conversation === undefined ? "Loading\u2026" : conversation === null ? "Conversation not found." : "Not an encrypted X Chat conversation."}</Text>;
   }
@@ -26,7 +35,7 @@ export default function XChatThreadScreen() {
       <View className="flex-1 items-center justify-center gap-4 bg-background p-6">
         <Stack.Screen options={{ title: name ?? "" }} />
         <Text className="text-center text-muted-foreground">This chat is encrypted. Unlock X Chat to read it on this phone.</Text>
-        <Pressable onPress={() => router.push("/x-chat/unlock")} className="rounded-lg bg-primary px-4 py-2">
+        <Pressable onPress={() => router.push("/x-chat-passcode")} className="rounded-lg bg-primary px-4 py-2">
           <Text className="text-primary-foreground font-medium">Unlock</Text>
         </Pressable>
       </View>

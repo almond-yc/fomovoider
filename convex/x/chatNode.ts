@@ -328,7 +328,7 @@ async function openSession(ctx: ActionCtx, accountId: Id<"connectedAccounts">, b
   engine.adopt(chat as unknown as XdkChat, { meId, signingKeyVersion: row.signingKeyVersion, signingKeys: own });
   const connect = async () => {
     const current: Doc<"connectedAccounts"> | null = await ctx.runQuery(internal.accounts.get, { accountId });
-    if (!current?.me || current.me.id !== account.me!.id || current.session.kind !== "oauth") throw new ConnectorFailure({ kind: "session_expired" }, "Connect X first");
+    if (!current?.me || current.status !== "active" || current.me.id !== account.me!.id || current.session.kind !== "oauth") throw new ConnectorFailure({ kind: "session_expired" }, "Connect X first");
     return connectXChat(ctx, current, backfill);
   };
   return { accountId, meId, me: account.me as Person, engine, connect, signingKeys: new Map(own.map((k) => [`${k.userId}:${k.publicKeyVersion}`, k])) };

@@ -123,9 +123,6 @@ export function InstagramWebViewHost({
   // and on instagram.com's login page for the login screen. Set once, so the
   // page isn't reloaded when the login screen closes.
   const [source] = useState(() => ({ uri: state?.connected ? "about:blank" : LOGIN_URL }));
-  // A crashed page is replaced by a fresh blank one instead of reloaded, so
-  // instagram.com is only ever loaded by a task or the login screen.
-  const [pageGeneration, setPageGeneration] = useState(0);
 
   const onMessage = useCallback((listener: (m: HookMessage) => void) => {
     listeners.current.add(listener);
@@ -288,7 +285,6 @@ export function InstagramWebViewHost({
             </View>
           )}
           <WebView<object>
-            key={pageGeneration}
             ref={webview}
             source={source}
             originWhitelist={ANY_ORIGIN}
@@ -305,7 +301,7 @@ export function InstagramWebViewHost({
             allowsBackForwardNavigationGestures={false}
             sharedCookiesEnabled
             webviewDebuggingEnabled={__DEV__}
-            onContentProcessDidTerminate={() => setPageGeneration((g) => g + 1)}
+            onContentProcessDidTerminate={() => webview.current?.reload()}
           />
         </View>
       )}

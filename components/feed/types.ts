@@ -1,24 +1,14 @@
-import type { PlatformId } from '@/src/connectors/types';
+import type { api } from '@/convex/_generated/api';
+import type { FunctionReturnType } from 'convex/server';
 
-export type FeedMedia = {
-  kind: 'image' | 'gif' | 'video';
-  url: string;
-  previewUrl?: string;
-  width?: number;
-  height?: number;
-  altText?: string;
-};
+// A post as feed.page returns it: dates in epoch ms, media and avatar URLs
+// already pointing at the stored copy when one exists.
+export type FeedPagePost = FunctionReturnType<typeof api.feed.page>['page'][number];
 
-export type FeedPerson = {
-  handle: string;
-  displayName: string;
-  avatarUrl?: string;
-};
-
-export type FeedPost = {
-  platform: PlatformId;
-  author: FeedPerson;
-  text: string;
-  media: FeedMedia[];
-  permalink: string;
-};
+// The fields ContentItem renders, so sample posts need not invent ids.
+export type FeedPost = Pick<
+  FeedPagePost,
+  'platform' | 'author' | 'title' | 'createdAt' | 'text' | 'media' | 'permalink' | 'format' | 'extracted'
+>;
+export type FeedMedia = FeedPost['media'][number];
+export type FeedPerson = FeedPost['author'];

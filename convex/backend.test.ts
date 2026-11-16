@@ -6,6 +6,7 @@ import type { Id } from "./_generated/dataModel";
 import type { Media } from "../src/connectors/types";
 import { RELEVANCE_THRESHOLD } from "./feed";
 import crons from "./crons";
+import { MAX_SEEN_BATCH } from "./postStates";
 import { RETENTION_DAYS } from "./retention";
 import schema from "./schema";
 import { MAX_TEXT_LENGTH, type PostInput } from "./lib/validators";
@@ -255,6 +256,23 @@ describe("feed", () => {
       "instagram:2",
       "instagram:1",
     ]);
+  });
+
+  test("connectorsCaughtUp matches the last page's caughtUp, and pages carry savedAt", async () => {
+    const { alice, x, ig, upsert } = await seed();
+    await upsert(x, [post("x", 2)]);
+    await upsert(ig, [post("instagram", 1)], false);
+    expect((await alice.as.query(api.feed.page, page)).caughtUp).toBe(false);
+    expect(await alice.as.query(api.feed.connectorsCaughtUp, {})).toBe(false);
+    await upsert(ig, [post("instagram", 1)]);
+    expect((await alice.as.query(api.feed.page, page)).caughtUp).toBe(true);
+    expect(await alice.as.query(api.feed.connectorsCaughtUp, {})).toBe(true);
+
+    const [x2] = (await alice.as.query(api.feed.page, page)).page;
+    expect(x2.savedAt).toBeUndefined();
+    await alice.as.mutation(api.postStates.setSaved, { postId: x2._id, saved: true });
+    const [saved] = (await alice.as.query(api.feed.page, page)).page;
+    expect(saved.savedAt).toEqual(expect.any(Number));
   });
 
   test("ends at the caught-up point, per platform", async () => {
@@ -875,6 +893,27 @@ describe("post states", () => {
       await expect(call).rejects.toThrow("Post not found");
     }
     expect(await t.run((ctx) => ctx.db.query("postStates").collect())).toEqual([]);
+  });
+  test("markSeenMany marks a batch once and checks every post's owner", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(1_000);
+    const { t, alice, bob, postId } = await seedPosts();
+    const [x1, x2] = [postId("x:1"), postId("x:2")];
+    await alice.as.mutation(api.postStates.markSeenMany, { postIds: [x1, x2, x1] });
+    vi.setSystemTime(5_000);
+    await alice.as.mutation(api.postStates.markSeenMany, { postIds: [x1] });
+    const states = await t.run((ctx) => ctx.db.query("postStates").collect());
+    expect(states).toHaveLength(2);
+    expect(states.every((s) => s.seenAt! >= 1_000 && s.seenAt! < 5_000)).toBe(true);
+
+    await expect(bob.as.mutation(api.postStates.markSeenMany, { postIds: [x1] })).rejects.toThrow(
+      "Post not found",
+    );
+    await expect(
+      alice.as.mutation(api.postStates.markSeenMany, {
+        postIds: Array.from({ length: MAX_SEEN_BATCH + 1 }, () => x1),
+      }),
+    ).rejects.toThrow("At most");
   });
 });
 

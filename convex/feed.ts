@@ -1,6 +1,7 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import { mutation, query, type QueryCtx } from "./_generated/server";
 import { requireUserId } from "./lib/auth";
 import { resolvePost } from "./lib/media";
 
@@ -24,10 +25,6 @@ export const page = query({
       .query("feedCursors")
       .withIndex("by_userId_and_platform", (q) => q.eq("userId", userId))
       .collect();
-    const accounts = await ctx.db
-      .query("connectedAccounts")
-      .withIndex("by_userId_and_platform", (q) => q.eq("userId", userId))
-      .collect();
     const seen = cursors.flatMap((c) =>
       c.seenUntil === undefined ? [] : [{ platform: c.platform, seenUntil: c.seenUntil }],
     );
@@ -49,9 +46,7 @@ export const page = query({
         ),
       )
       .paginate(paginationOpts);
-    const connectorsCaughtUp = accounts.every(
-      ({ platform }) => cursors.find((c) => c.platform === platform)?.caughtUp === true,
-    );
+    const connectorsCaughtUp = await everyConnectorCaughtUp(ctx, userId, cursors);
     // Hidden posts are dropped from the page after it is read, so a page can
     // come back shorter than numItems; reads stay bounded by the page size.
     const visible = [];
@@ -60,13 +55,45 @@ export const page = query({
         .query("postStates")
         .withIndex("by_userId_and_postId", (q) => q.eq("userId", userId).eq("postId", post._id))
         .unique();
-      if (state?.hiddenAt === undefined) visible.push(await resolvePost(ctx, post));
+      if (state?.hiddenAt === undefined) {
+        visible.push({ ...(await resolvePost(ctx, post)), savedAt: state?.savedAt });
+      }
     }
     return {
       ...result,
       page: visible,
       caughtUp: result.isDone && connectorsCaughtUp,
     };
+  },
+});
+
+async function everyConnectorCaughtUp(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  cursors: Doc<"feedCursors">[],
+) {
+  const accounts = await ctx.db
+    .query("connectedAccounts")
+    .withIndex("by_userId_and_platform", (q) => q.eq("userId", userId))
+    .collect();
+  return accounts.every(
+    ({ platform }) => cursors.find((c) => c.platform === platform)?.caughtUp === true,
+  );
+}
+
+// feed.page's caughtUp without the posts, for clients whose paginated query
+// hook (usePaginatedQuery) keeps only each page's items: the feed is caught up
+// when the last page is loaded and this is true.
+export const connectorsCaughtUp = query({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx) => {
+    const userId = await requireUserId(ctx);
+    const cursors = await ctx.db
+      .query("feedCursors")
+      .withIndex("by_userId_and_platform", (q) => q.eq("userId", userId))
+      .collect();
+    return await everyConnectorCaughtUp(ctx, userId, cursors);
   },
 });
 

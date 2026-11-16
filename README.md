@@ -31,14 +31,13 @@ Fomovoider covers two platforms: X and Instagram.
 - **Connect**: until one platform is connected, the app shows a Connect screen instead of the tabs, with a row for X (X's own sign-in) and one for Instagram (pairing a device with a one-time code).
 - **Settings** (gear in the native header): each platform's handle, status and last sync, Sync now, Disconnect (which deletes that platform's data from Fomovoider), and Sign out.
 - **Chats tab**: the inbox and a conversation screen, with X conversations (Instagram DMs aren't synced yet), sending X DMs and replies, and pending or failed delivery shown on each message. Encrypted X Chat conversations are decrypted on the phone after the user unlocks them; Convex only stores ciphertext.
-- **Feed tab**: still an empty state. The feed component (post cards with media, skeletons, and a `PlatformBadge` that links to the original post) renders sample posts at `/feed-preview`.
+- **Feed tab**: the signed-in user's finite feed from Convex (`feed.page`), newest first across platforms, with skeletons while it loads. It ends at "You're all caught up", which also marks where the next session starts. Pull to refresh re-queries and asks each connector with a sync mutation to sync. Posts are marked seen as they scroll into view and opened when you tap the platform icon; long-press a post to save or hide it. Stories and tagged places show quietly on the card. A connected account in trouble (signed out, X credits used up) shows as a one-line notice above the feed. `/feed-preview` renders the same post component with sample data for design work.
 - **Backend** on Convex: Convex Auth with email and password, connected accounts, the shared `posts`, `postStates`, `conversations` and `messages` tables, `feed.page` with the finite cutoff, media copies in Convex file storage, a daily retention cron, and the registration points connectors use for their own tables and crons. See [convex/README.md](convex/README.md).
 - **X connector** (`src/connectors/x/`, `convex/x/`): official X API v2 with OAuth 2.0 PKCE, the code exchanged on the server, a 6-hourly sync of the home feed, mentions and DMs, and DM sends. The shared dev deployment holds real X posts and DMs from a team account.
 - **Instagram connector** (`convex/instagram/`, `hosts/instagram/`): read-only. A host agent on a Mac drives the Instagram app on the user's paired iPhone through WebDriverAgent and sends posts and stories to Convex on runs that Convex schedules.
 
 **In open pull requests**
 
-- #25: the Feed tab on real data, with the finite feed, post state, and account notices.
 - #27: drop the `steps` login kind from the connector contract.
 - #28: let connectors pass `Media.storageId` for post media.
 
@@ -58,7 +57,7 @@ flowchart LR
 - **App**: Expo (React Native, TypeScript) with Expo Router and react-native-reusables on NativeWind. `app/_layout.tsx` picks the screen from the `users.viewer` query: sign up or sign in, Connect, or the tabs under the native stack header. Every Convex query it subscribes to is scoped to the signed-in user, and `lib/connectors.ts` lists the platforms it can connect and how each signs in.
 - **Backend**: [Convex](https://convex.dev) holds accounts, sessions and normalized content, and schedules every sync from crons.
 - **Connectors** turn one platform into the shared types in [src/connectors/types.ts](src/connectors/types.ts) (`Post`, `Conversation`, `Message`, `Person`), with namespaced ids like `x:123` and typed errors, and write only through the shared ingest functions. X runs inside Convex actions; Instagram's host agent reports to Convex mutations from the Mac. Each connector's own code and tables live in `convex/<platform>/`, registered with one schema spread and one cron call.
-- **Finite feed**: `feed.page` merges every platform newest first and stops where the user last caught up. Connectors return what is new since a cursor and report when they are caught up; nothing pages infinitely.
+- **Finite feed**: `feed.page` merges every platform newest first and stops where the user last caught up. Connectors return what is new since a cursor and report when they are caught up; nothing pages infinitely. The Feed tab pages through `feed.page` with `usePaginatedQuery`, reads `feed.connectorsCaughtUp` to know when the last page is the end, and calls `feed.markCaughtUp` when the user reaches it. What the user does with each post (seen, opened, hidden, saved) goes to `postStates`.
 - **Filtering happens in the app.** Connectors extract and store, and never rank or filter for quality.
 
 ## Development

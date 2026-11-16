@@ -15,7 +15,7 @@ export function ContentMedia({ media }: { media: FeedMedia }) {
       ) : (
         <Image
           source={media.url}
-          placeholder={media.previewUrl}
+          placeholder={media.blurhash ? { blurhash: media.blurhash } : media.previewUrl}
           accessibilityLabel={media.altText}
           contentFit="cover"
           transition={150}

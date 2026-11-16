@@ -19,6 +19,7 @@ const LOGIN_URL = "https://www.instagram.com/accounts/login/";
 import { extract, parseResponseText } from "../parse";
 import { runRefresh, type PageControl, type RefreshApi, type RefreshResult } from "../refresh";
 import { tripwireFor } from "../tripwire";
+import { allowNavigation } from "./gate";
 
 // The one hidden instagram.com web view in Fomovoider. It holds the user's
 // Instagram session (cookies stay in this phone's web view store and never
@@ -122,6 +123,9 @@ export function InstagramWebViewHost({
   // and on instagram.com's login page for the login screen. Set once, so the
   // page isn't reloaded when the login screen closes.
   const [source] = useState(() => ({ uri: state?.connected ? "about:blank" : LOGIN_URL }));
+  // A crashed page is replaced by a fresh blank one instead of reloaded, so
+  // instagram.com is only ever loaded by a task or the login screen.
+  const [pageGeneration, setPageGeneration] = useState(0);
 
   const onMessage = useCallback((listener: (m: HookMessage) => void) => {
     listeners.current.add(listener);
@@ -284,19 +288,24 @@ export function InstagramWebViewHost({
             </View>
           )}
           <WebView<object>
+            key={pageGeneration}
             ref={webview}
             source={source}
+            originWhitelist={ANY_ORIGIN}
             userAgent={safariUserAgent()}
             injectedJavaScriptBeforeContentLoaded={hookJs}
             injectedJavaScriptBeforeContentLoadedForMainFrameOnly
             onMessage={handleMessage}
             onLoadEnd={(e: { nativeEvent: { url: string } }) => loadWaiters.current.forEach((w) => w(e.nativeEvent.url))}
             onShouldStartLoadWithRequest={allowNavigation}
+            onOpenWindow={ignoreNewWindow}
             setSupportMultipleWindows={false}
+            javaScriptCanOpenWindowsAutomatically={false}
+            allowsLinkPreview={false}
             allowsBackForwardNavigationGestures={false}
             sharedCookiesEnabled
             webviewDebuggingEnabled={__DEV__}
-            onContentProcessDidTerminate={() => webview.current?.reload()}
+            onContentProcessDidTerminate={() => setPageGeneration((g) => g + 1)}
           />
         </View>
       )}
@@ -305,19 +314,12 @@ export function InstagramWebViewHost({
   );
 }
 
-// Only web pages load: "Open Instagram" and App Store links (itms-appss://,
-// instagram://) are refused, and the page itself may only move within
-// instagram.com. Frames (reCAPTCHA, Facebook login sync) load as usual.
-function allowNavigation(req: { url: string; isTopFrame?: boolean }) {
-  if (req.url === "about:blank") return true;
-  if (!/^https:/i.test(req.url)) return false;
-  if (req.isTopFrame === false) return true;
-  try {
-    return /(^|\.)instagram\.com$/i.test(new URL(req.url).hostname);
-  } catch {
-    return false;
-  }
-}
+// Every URL goes to allowNavigation (./gate.ts); with the default whitelist,
+// react-native-webview would open non-http(s) URLs itself via Linking.
+const ANY_ORIGIN = ["*"];
+
+// window.open and target=_blank are dropped instead of loading in place.
+const ignoreNewWindow = () => undefined;
 
 // Downloads a capture from Instagram's CDN and uploads it to Convex storage.
 async function uploadFile(source: string, uploadUrl: string, timeoutMs: number) {

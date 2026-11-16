@@ -157,7 +157,7 @@ export function ConnectionRow({
       platform={connector.platform}
       name={connector.name}
       subtitle={variant === 'settings' && account?.me ? `@${account.me.handle}` : connector.description}
-      status={note ?? paused ?? status.text}
+      status={paused ?? note ?? status.text}
       statusTone={note || paused ? 'muted' : status.tone}
       action={action}>
       {links.length ? (

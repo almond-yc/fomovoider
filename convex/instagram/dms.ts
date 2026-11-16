@@ -98,6 +98,9 @@ const vMember = v.object({ fbid: v.string(), person: vPerson });
 // the socket), senders seen on messages, and read receipts.
 export const submit = mutation({
   args: {
+    // Who the page is logged in as (a thread's viewer). The batch is refused
+    // unless it is the account's own Instagram user.
+    viewer: v.object({ handle: v.string(), fbid: v.string() }),
     viewerIds: v.array(v.string()),
     threads: v.array(
       v.object({
@@ -135,15 +138,21 @@ export const submit = mutation({
       return { conversations: 0, messages: 0 };
     }
     const me = account.me;
+    if (args.viewer.handle !== me.handle || !args.viewerIds.includes(args.viewer.fbid)) {
+      throw new Error("These Instagram messages belong to a different Instagram account");
+    }
     const now = Date.now();
     for (const id of [...args.threads.map((t) => t.id), ...args.messages.map((m) => m.conversationId)]) {
       if (!id.startsWith("instagram:")) throw new Error(`Id ${id} is not an Instagram id`);
     }
 
-    let state = await dmState(ctx, userId);
-    const viewerIds = [...new Set([...args.viewerIds, ...(state?.viewerIds ?? [])])].slice(0, 6);
-    if (state) await ctx.db.patch(state._id, { viewerIds });
-    else await ctx.db.insert("instagram_dmState", { userId, viewerIds });
+    // The viewer's messaging ids, bound to the Instagram identity they were
+    // verified for; a new identity starts over.
+    const state = await dmState(ctx, userId);
+    const known = state?.meId === me.id ? state.viewerIds : [];
+    const viewerIds = [...new Set([...args.viewerIds, ...known])].slice(0, 6);
+    if (state) await ctx.db.patch(state._id, { viewerIds, meId: me.id });
+    else await ctx.db.insert("instagram_dmState", { userId, viewerIds, meId: me.id });
     const viewer = new Set(viewerIds);
 
     // Threads: who is in them and the id their URL uses.
@@ -309,6 +318,8 @@ export const claim = mutation({
       await finishOutbox(ctx, row, { ok: false, error: reason ?? "This chat isn't in the Instagram inbox." });
       return null;
     }
+    // Not until the phone's page has shown it is logged in as this account.
+    if ((await dmState(ctx, userId))?.meId !== account!.me!.id) return null;
     await ctx.db.patch(row._id, { state: "claimed", claimedAt: Date.now() });
     await ctx.scheduler.runAfter(DM_CLAIM_TIMEOUT_MS, internal.instagram.dms.expireClaim, { outboxId });
     return row.kind === "send"

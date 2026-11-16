@@ -25,6 +25,7 @@ import {
   THREAD_OPERATION,
   type DmCapture,
   type DmMessage,
+  type DmViewer,
   type SendOutcome,
 } from "./parse";
 
@@ -42,6 +43,9 @@ export type OutboxTask =
 export type OutboxResult = SendOutcome;
 
 export interface DmSubmit {
+  // The page's logged-in Instagram user; Convex rejects the batch unless it
+  // is the account's own.
+  viewer: DmViewer;
   viewerIds: string[];
   threads: DmCapture["threads"];
   // live: arrived over the socket, so it is new since the inbox loaded.
@@ -71,20 +75,57 @@ export const MAX_TEXT_LENGTH = 1_000;
 
 export interface DmCaptureDeps {
   api: Pick<DmApi, "submit">;
+  // The connected account's Instagram handle. Captures are held until a
+  // thread shows the page is logged in as this user, and dropped when it
+  // shows anyone else.
+  expectedHandle(): string | undefined;
   // Something changed that only an inbox reload shows: a delta the parsers
   // don't read, or a gap in the sequence ids.
   onStale(): void;
   setTimer?: (fn: () => void, ms: number) => unknown;
 }
 
+type Pending = Omit<DmSubmit, "viewer">;
+const emptyPending = (): Pending => ({ viewerIds: [], threads: [], messages: [], senders: [], receipts: [] });
+
 export function createDmCapture(deps: DmCaptureDeps) {
   const setTimer = deps.setTimer ?? setTimeout;
-  let pending: DmSubmit = { viewerIds: [], threads: [], messages: [], senders: [], receipts: [] };
+  let pending = emptyPending();
   let scheduled = false;
   let lastSeq = 0;
+  // The verified page viewer and the handle it was verified for.
+  let viewer: (DmViewer & { for: string }) | undefined;
   const waiters = new Set<{ operation: string; resolve: (docs: Json[]) => void }>();
 
+  // Forgets everything captured: another Fomovoider user or Instagram
+  // account is now in play.
+  const reset = () => {
+    pending = emptyPending();
+    viewer = undefined;
+    lastSeq = 0;
+  };
+
+  // The page's viewer if it is the expected account. A capture showing
+  // someone else resets the capture and is dropped.
+  const verify = (capture: DmCapture) => {
+    const expected = deps.expectedHandle();
+    if (!expected) {
+      reset();
+      return false;
+    }
+    if (viewer && viewer.for !== expected) reset();
+    if (capture.viewer) {
+      if (capture.viewer.handle !== expected) {
+        reset();
+        return false;
+      }
+      viewer = { ...capture.viewer, for: expected };
+    }
+    return true;
+  };
+
   const add = (capture: DmCapture, live: boolean) => {
+    if (!verify(capture)) return;
     for (const id of capture.viewerIds) if (!pending.viewerIds.includes(id)) pending.viewerIds.push(id);
     pending.threads.push(...capture.threads);
     pending.messages.push(...capture.messages.map((m) => (live ? { ...m, live } : m)));
@@ -96,11 +137,17 @@ export function createDmCapture(deps: DmCaptureDeps) {
     }
   };
 
+  // Sends what was captured, once the page's viewer is verified for the
+  // expected account; until then it waits for a thread detail to show it.
   const flush = async () => {
     scheduled = false;
+    const expected = deps.expectedHandle();
+    if (!viewer || viewer.for !== expected) return;
     const batch = pending;
-    pending = { viewerIds: [...batch.viewerIds], threads: [], messages: [], senders: [], receipts: [] };
-    if (batch.threads.length || batch.messages.length || batch.receipts.length) await deps.api.submit(batch);
+    pending = { ...emptyPending(), viewerIds: [...batch.viewerIds] };
+    if (batch.threads.length || batch.messages.length || batch.receipts.length) {
+      await deps.api.submit({ ...batch, viewer: { handle: viewer.handle, fbid: viewer.fbid } });
+    }
   };
 
   const handle = (message: Message) => {
@@ -146,7 +193,10 @@ export function createDmCapture(deps: DmCaptureDeps) {
       }, timeoutMs);
     });
 
-  return { handle, next, flush };
+  // True once the page showed it is logged in as the expected account.
+  const verified = () => Boolean(viewer && viewer.for === deps.expectedHandle());
+
+  return { handle, next, flush, reset, verified };
 }
 
 export type DmCaptureHandle = ReturnType<typeof createDmCapture>;
@@ -235,6 +285,7 @@ async function backToInbox(tapped: boolean, deps: DmTaskDeps) {
 // for Convex. A send is typed into the chat's composer and sent with its
 // Send button exactly once; nothing here retries a send.
 export async function deliver(task: OutboxTask, deps: DmTaskDeps): Promise<OutboxResult> {
+  if (!deps.capture.verified()) return { ok: false, error: "Instagram in this app is logged in as a different account." };
   const random = deps.random ?? Math.random;
   const pause = (min: number, max: number) => deps.sleep(min + random() * (max - min));
   try {

@@ -132,7 +132,7 @@ Every morning at 6:30 in each onboarded user's time zone (`users.timeZone`, set 
 3. **Judge**: each post goes through the `briefJudgePool` workpool (5 at a time, retried with backoff) to `brief/judge:judgePost`, a LangChain agent on `gpt-6.1-sol` that sees the text, the facts, and up to 8 images (downscaled images, 3 GIF frames, a video's poster plus 4 keyframes via ffmpeg-static, quoted media last), and can call `inspect_video` for more frames. One verdict per post (`brief_verdicts`).
 4. **Save**: `brief_items` ranked by priority, then recency, with the media indices the agent kept.
 
-The app reads `brief.today`, `brief.byDate` and `brief.dates`. Retention deletes a post's verdict and brief item with the post (`lib/posts.ts`). Needs `OPENAI_API_KEY` on the deployment; without it every post is counted as failed and the brief comes out empty. To run one now on a local backend: `npx convex run brief/crons:startNow '{"userId": "..."}'`.
+The app reads `brief.today`, `brief.byDate` and `brief.dates`. Retention deletes a post's verdict and brief item with the post (`lib/posts.ts`). Needs `OPENAI_API_KEY` on the deployment; without it every model call fails and the run ends as `failed`. To run one now on a local backend: `npx convex run brief/crons:startNow '{"userId": "..."}'`.
 
 ## Checks
 

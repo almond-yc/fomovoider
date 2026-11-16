@@ -28,6 +28,7 @@ export const INSTAGRAM_POLL_MS = 60 * 1000;
 // this is offline and isn't sent a run it would pick up hours later.
 export const INSTAGRAM_OFFLINE_MS = 10 * 60 * 1000;
 const JUDGED_EVENT = "judged";
+const SPONSORED_MODEL = "rule:sponsored";
 
 type Skipped = { platform: string; reason: string };
 
@@ -223,7 +224,7 @@ export const select = internalMutation({
           priority: 0,
           reason: "Sponsored",
           media: { attach: false, keepIndices: [], why: "Sponsored post" },
-          model: "rule:sponsored",
+          model: SPONSORED_MODEL,
           judgedAt: now,
         });
       } else toJudge.push(post._id);
@@ -356,8 +357,12 @@ export const finalize = internalMutation({
         mediaIndices: verdict.media.attach ? verdict.media.keepIndices : [],
       });
     }
+    // Every model call failed (a missing key, an outage): an empty "done"
+    // brief would read as "nothing worth your time", so it's a failure.
+    const allFailed = run.counts.failed > 0 && verdicts.every((v) => v.model === SPONSORED_MODEL);
     await ctx.db.patch(runId, {
-      status: "done",
+      status: allFailed ? "failed" : "done",
+      ...(allFailed ? { error: "Every post failed to judge" } : {}),
       finishedAt: Date.now(),
       pending: 0,
       counts: { ...run.counts, kept: kept.length, filtered: verdicts.length - kept.length },

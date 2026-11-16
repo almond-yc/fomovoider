@@ -338,6 +338,21 @@ describe("saving the brief", () => {
     await expect(t.query(api.brief.today, {})).rejects.toThrow("Not signed in");
   });
 
+  test("marks the run failed when every model call failed", async () => {
+    const t = setup();
+    const userId = await addUser(t);
+    await addPost(t, userId, 1);
+    const runId = await addRun(t, userId);
+    await t.mutation(internal.brief.workflow.select, { runId, skipped: [] });
+    await t.mutation(internal.brief.workflow.onJudged, {
+      workId: "w",
+      context: { runId },
+      result: { kind: "failed", error: "OPENAI_API_KEY is not set on this deployment" },
+    } as never);
+    await t.mutation(internal.brief.workflow.finalize, { runId });
+    expect(await t.run((ctx) => ctx.db.get(runId))).toMatchObject({ status: "failed", counts: { failed: 1, kept: 0 } });
+  });
+
   test("retention deletes a post's verdict and brief item with the post", async () => {
     const t = setup();
     const { runId, low } = await judgedRun(t);

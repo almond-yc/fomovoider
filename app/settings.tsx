@@ -1,10 +1,12 @@
 import { ConnectionRow } from '@/components/connection-row';
+import { XChatPasscodeRow } from '@/components/x-chat-passcode-row';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 import { api } from '@/convex/_generated/api';
 import { connectors } from '@/lib/connectors';
 import { useAuthActions } from '@convex-dev/auth/react';
 import { useQuery } from 'convex/react';
+import { Fragment } from 'react';
 import { ScrollView, View } from 'react-native';
 
 export default function SettingsScreen() {
@@ -18,14 +20,15 @@ export default function SettingsScreen() {
       <Text variant="muted" className="px-5 pb-1 pt-6 text-xs uppercase tracking-wider">
         Accounts
       </Text>
-      {connectors.map((connector) => (
-        <ConnectionRow
-          key={connector.platform}
-          connector={connector}
-          account={viewer?.accounts.find((a) => a.platform === connector.platform)}
-          variant="settings"
-        />
-      ))}
+      {connectors.map((connector) => {
+        const account = viewer?.accounts.find((a) => a.platform === connector.platform);
+        return (
+          <Fragment key={connector.platform}>
+            <ConnectionRow connector={connector} account={account} variant="settings" />
+            {connector.platform === 'x' && account?.status === 'active' ? <XChatPasscodeRow /> : null}
+          </Fragment>
+        );
+      })}
       <View className="mt-8 gap-3 px-5">
         {viewer?.email ? <Text variant="muted">Signed in as {viewer.email}</Text> : null}
         <Button variant="outline" onPress={() => void signOut()}>

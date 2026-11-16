@@ -93,7 +93,9 @@ function RootNavigator() {
         <Stack.Protected guard={signedIn && !onboarded}>
           <Stack.Screen name="onboarding" />
         </Stack.Protected>
-        <Stack.Protected guard={signedIn && onboarded && !connected}>
+        <Stack.Protected
+          guard={signedIn && onboarded && !connected}
+          redirectTo={askXChatPasscode ? '/x-chat-passcode' : undefined}>
           <Stack.Screen name="connect" />
         </Stack.Protected>
         <Stack.Protected guard={signedIn && onboarded && connected && !askXChatPasscode}>

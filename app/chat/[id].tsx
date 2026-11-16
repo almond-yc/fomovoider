@@ -53,13 +53,13 @@ export default function ConversationScreen() {
     async (key: string, text: string) => {
       setPending((all) => all.map((p) => (p.key === key ? { ...p, status: 'sending', error: undefined } : p)));
       let error: string | undefined;
-      let sentId: string | undefined;
+      let sent: ChatMessage | undefined;
       try {
         if (sourceThread) {
           await sourceThread.send(text);
         } else {
           const result = await sendAction({ conversationId: id, text });
-          if (result.ok) sentId = result.message.id;
+          if (result.ok) sent = result.message;
           else error = sendErrorText(result.error, conversation?.platform ?? '');
         }
       } catch (err) {
@@ -68,8 +68,8 @@ export default function ConversationScreen() {
       setPending((all) =>
         error
           ? all.map((p) => (p.key === key ? { ...p, status: 'failed', error } : p))
-          : sentId
-            ? all.map((p) => (p.key === key ? { ...p, sentId } : p))
+          : sent
+            ? all.map((p) => (p.key === key ? { ...p, sent: { id: sent.id, text: sent.text, sentAt: sent.sentAt } } : p))
             : all.filter((p) => p.key !== key)
       );
     },

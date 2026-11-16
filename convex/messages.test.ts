@@ -8,6 +8,8 @@ import { CHAT_PLATFORMS } from "./chat/connectors";
 import { fixtures } from "../src/connectors/x/fixtures";
 import { createFixtureFetch } from "../src/connectors/x/mock";
 import { XConnector } from "../src/connectors/x/connector";
+import inbox from "../src/instagram/dms/__fixtures__/dm-inbox.json";
+import { emptyCapture, parseInbox } from "../src/instagram/dms/parse";
 
 const modules = import.meta.glob("./**/*.ts");
 const CONVERSATION = "x:1234567890-2244994945";
@@ -148,15 +150,15 @@ describe("messages.send", () => {
   test("refuses unavailable conversations, platforms without a sender, and disconnected accounts", async () => {
     const calls = stubFetch();
     const { t, signUp } = await setup();
-    const alice = await signUp("alice-token", ["x", "instagram"]);
-    expect(CHAT_PLATFORMS.instagram).toBeUndefined();
+    const alice = await signUp("alice-token", ["x", "messenger"]);
+    expect(CHAT_PLATFORMS.messenger).toBeUndefined();
     await alice.addConversation("x:locked", { unavailable: { reason: "encrypted" } });
-    await alice.addConversation("instagram:c1");
+    await alice.addConversation("messenger:c1");
     await alice.addConversation(CONVERSATION);
     const send = (conversationId: string) => alice.as.action(api.messages.send, { conversationId, text: "hi" });
 
     expect(await send("x:locked")).toEqual({ ok: false, error: { kind: "unsupported", capability: "sendMessage" } });
-    expect(await send("instagram:c1")).toEqual({ ok: false, error: { kind: "unsupported", capability: "sendMessage" } });
+    expect(await send("messenger:c1")).toEqual({ ok: false, error: { kind: "unsupported", capability: "sendMessage" } });
 
     await t.run((ctx) => ctx.db.patch(alice.accounts.x!, { status: "expired" }));
     expect(await send(CONVERSATION)).toEqual({ ok: false, error: { kind: "session_expired" } });
@@ -254,23 +256,6 @@ test("a session_expired from a session the user has since replaced leaves the ne
   expect(await t.run((ctx) => ctx.db.get(alice.accounts.x!))).toMatchObject({ status: "active", sessionVersion: 2 });
 });
 
-test("Instagram conversations are read-only until Instagram registers a sender", async () => {
-  const calls = stubFetch();
-  const { signUp } = await setup();
-  const alice = await signUp("alice-token", ["instagram"]);
-  await alice.addConversation("instagram:c1", { unreadCount: 1 });
-
-  expect(await alice.as.query(api.conversations.get, { conversationId: "instagram:c1" })).toMatchObject({
-    sendBlocked: { kind: "unsupported", capability: "sendMessage" },
-  });
-  expect(await alice.as.action(api.messages.send, { conversationId: "instagram:c1", text: "hi" })).toEqual({
-    ok: false,
-    error: { kind: "unsupported", capability: "sendMessage" },
-  });
-  expect(await alice.as.action(api.messages.markRead, { conversationId: "instagram:c1" })).toBeNull();
-  expect(calls).toEqual([]);
-});
-
 describe("messages.markRead", () => {
   test("is a no-op for X, which has no markRead", async () => {
     const calls = stubFetch();
@@ -285,39 +270,93 @@ describe("messages.markRead", () => {
   });
 });
 
-test("delivery status passes through send and list, and a later flip shows in list", async () => {
-  const { t, signUp } = await setup();
-  const alice = await signUp("alice-token", ["instagram"]);
-  const id = "instagram:thread-1";
-  await alice.addConversation(id);
-  const sent = {
-    id: "instagram:m1",
-    conversationId: id,
-    sender: person("instagram", "me"),
-    isMine: true,
-    sentAt: Date.parse("2026-11-15T12:00:00Z"),
-    text: "on my way",
-    media: [],
-    delivery: { status: "pending" as const },
-  };
-  CHAT_PLATFORMS.instagram = {
-    capabilities: { feed: false, chats: true, sendMessage: true, sendMedia: false, reply: false },
-    send: async () => sent,
-  };
-  await t.run((ctx) => ctx.db.insert("messages", { userId: alice.userId, ...sent }));
-  try {
-    const result = await alice.as.action(api.messages.send, { conversationId: id, text: "on my way" });
-    expect(result).toMatchObject({ ok: true, message: { id: "instagram:m1", delivery: { status: "pending" } } });
-  } finally {
-    delete CHAT_PLATFORMS.instagram;
+describe("Instagram", () => {
+  const me = { id: "instagram:nico", platform: "instagram", handle: "nico", displayName: "Nico" };
+
+  async function instagramSetup() {
+    const t = convexTest(schema, modules);
+    const signUp = async () => {
+      const userId = await t.run((ctx) => ctx.db.insert("users", {}));
+      const as = t.withIdentity({ subject: `${userId}|session` });
+      await as.mutation(api.instagram.webview.connect, { me });
+      return { userId, as };
+    };
+    const submitInbox = async (as: Awaited<ReturnType<typeof signUp>>["as"]) => {
+      const { seqIds: _s, changed: _c, ...capture } = parseInbox(inbox, emptyCapture());
+      await as.mutation(api.instagram.dms.submit, capture);
+      return capture;
+    };
+    const outbox = () => t.run((ctx) => ctx.db.query("instagram_outbox").collect());
+    return { t, signUp, submitInbox, outbox };
   }
-  const page = () => alice.as.query(api.messages.list, { conversationId: id, paginationOpts: { numItems: 10, cursor: null } });
-  expect((await page()).page.map((m) => m.delivery)).toEqual([{ status: "pending" }]);
-  await t.run(async (ctx) => {
-    const row = (await ctx.db.query("messages").collect())[0]!;
-    await ctx.db.patch(row._id, { delivery: { status: "failed", error: "Instagram didn't accept it" } });
+
+  const page = (as: ReturnType<ReturnType<typeof convexTest>["withIdentity"]>, conversationId: string) =>
+    as.query(api.messages.list, { conversationId, paginationOpts: { numItems: 50, cursor: null } }).then((r) => r.page);
+
+  test("send routes to Instagram as a pending row the phone flips to sent, or to failed", async () => {
+    const { signUp, submitInbox, outbox } = await instagramSetup();
+    const alice = await signUp();
+    const conversationId = (await submitInbox(alice.as)).threads[0]!.id;
+    expect((await alice.as.query(api.conversations.get, { conversationId }))?.sendBlocked).toBeUndefined();
+
+    const result = await alice.as.action(api.messages.send, { conversationId, text: "on my way" });
+    expect(result).toMatchObject({ ok: true, message: { isMine: true, text: "on my way", delivery: { status: "pending" } } });
+    if (!result.ok) throw new Error("expected ok");
+    expect(await outbox()).toMatchObject([{ userId: alice.userId, kind: "send", text: "on my way", state: "pending" }]);
+    expect((await page(alice.as, conversationId)).filter((m) => m.id === result.message.id)).toMatchObject([
+      { delivery: { status: "pending" } },
+    ]);
+
+    const [item] = await alice.as.query(api.instagram.dms.outbox, {});
+    await alice.as.mutation(api.instagram.dms.claim, { outboxId: item!.outboxId });
+    await alice.as.mutation(api.instagram.dms.complete, {
+      outboxId: item!.outboxId,
+      result: { ok: true, messageId: "instagram:mid.$sent" },
+    });
+    let rows = (await page(alice.as, conversationId)).filter((m) => m.text === "on my way");
+    expect(rows).toMatchObject([{ id: "instagram:mid.$sent", delivery: { status: "sent" } }]);
+
+    const second = await alice.as.action(api.messages.send, { conversationId, text: "running late" });
+    if (!second.ok) throw new Error("expected ok");
+    const [next] = await alice.as.query(api.instagram.dms.outbox, {});
+    await alice.as.mutation(api.instagram.dms.claim, { outboxId: next!.outboxId });
+    await alice.as.mutation(api.instagram.dms.complete, {
+      outboxId: next!.outboxId,
+      result: { ok: false, error: "Instagram didn't send this message." },
+    });
+    rows = (await page(alice.as, conversationId)).filter((m) => m.id === second.message.id);
+    expect(rows).toMatchObject([{ delivery: { status: "failed", error: "Instagram didn't send this message." } }]);
   });
-  expect((await page()).page.map((m) => m.delivery)).toEqual([{ status: "failed", error: "Instagram didn't accept it" }]);
+
+  test("another user's Instagram conversation is rejected and nothing is queued", async () => {
+    const { signUp, submitInbox, outbox } = await instagramSetup();
+    const alice = await signUp();
+    const bob = await signUp();
+    const conversationId = (await submitInbox(alice.as)).threads[0]!.id;
+
+    await expect(bob.as.action(api.messages.send, { conversationId, text: "hi" })).rejects.toThrow(/Conversation not found/);
+    await expect(bob.as.action(api.messages.markRead, { conversationId })).rejects.toThrow(/Conversation not found/);
+    expect(await outbox()).toEqual([]);
+  });
+
+  test("markRead queues a seen receipt for the phone and clears the unread count", async () => {
+    const { t, signUp, submitInbox, outbox } = await instagramSetup();
+    const alice = await signUp();
+    const conversationId = (await submitInbox(alice.as)).threads[0]!.id;
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("conversations")
+        .withIndex("by_userId_and_id", (q) => q.eq("userId", alice.userId).eq("id", conversationId))
+        .unique();
+      await ctx.db.patch(row!._id, { unreadCount: 3 });
+    });
+
+    expect(await alice.as.action(api.messages.markRead, { conversationId })).toBeNull();
+    expect(await alice.as.action(api.messages.markRead, { conversationId })).toBeNull();
+
+    expect(await outbox()).toMatchObject([{ userId: alice.userId, kind: "markRead", conversationId, state: "pending" }]);
+    expect(await alice.as.query(api.conversations.get, { conversationId })).toMatchObject({ unreadCount: 0 });
+  });
 });
 
 test("registered capabilities match the X connector's own", () => {

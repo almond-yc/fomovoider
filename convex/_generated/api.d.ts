@@ -24,6 +24,7 @@ import type * as feed from "../feed.js";
 import type * as http from "../http.js";
 import type * as ingest from "../ingest.js";
 import type * as instagram_agent from "../instagram/agent.js";
+import type * as instagram_cleanup from "../instagram/cleanup.js";
 import type * as instagram_common from "../instagram/common.js";
 import type * as instagram_crons from "../instagram/crons.js";
 import type * as instagram_devices from "../instagram/devices.js";
@@ -77,6 +78,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   ingest: typeof ingest;
   "instagram/agent": typeof instagram_agent;
+  "instagram/cleanup": typeof instagram_cleanup;
   "instagram/common": typeof instagram_common;
   "instagram/crons": typeof instagram_crons;
   "instagram/devices": typeof instagram_devices;

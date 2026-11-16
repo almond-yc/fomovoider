@@ -116,6 +116,33 @@ describe("/x/webhook", () => {
     expect((await rows("x_usage")).find((u) => u.key.includes(":webhookEvents:"))?.used).toBe(1);
   });
 
+  test("events reach every active account of the X user, even one connected after the subscriptions", async () => {
+    const { t, accountId, deliver, rows } = await setup();
+    const { second, secondUser, expiredUser } = await t.run(async (ctx) => {
+      const { _id, _creationTime, ...rest } = (await ctx.db.get(accountId))!;
+      const secondUser = await ctx.db.insert("users", {});
+      const expiredUser = await ctx.db.insert("users", {});
+      const second = await ctx.db.insert("connectedAccounts", { ...rest, userId: secondUser });
+      await ctx.db.insert("connectedAccounts", { ...rest, userId: expiredUser, status: "expired" });
+      return { second, secondUser, expiredUser };
+    });
+    const dm = sample("dm.received");
+    await deliver(dm);
+    await deliver(dm);
+    await deliver(sample("chat.received"));
+    const id = `x:${ME}-${OTHER}`;
+    const hello = (await rows("messages")).filter((m) => m.conversationId === id && m.text === "hello!");
+    expect(hello.map((m) => m.userId).sort()).toEqual([secondUser, (await t.run((ctx) => ctx.db.get(accountId)))!.userId].sort());
+    expect((await rows("conversations")).filter((c) => c.id === id && c.userId === secondUser).length).toBe(1);
+    expect((await rows("x_chat_events")).filter((e) => e.userId === secondUser && e.kind === "event").map((e) => e.eventId)).toEqual(["2080400825227100160"]);
+    expect((await rows("messages")).some((m) => m.userId === expiredUser)).toBe(false);
+    expect((await rows("x_usage")).find((u) => u.key.includes(":webhookEvents:"))?.used).toBe(2);
+    await deliver(sample("oauth.revoke"));
+    expect(await t.run((ctx) => ctx.db.get(second))).toMatchObject({ status: "expired", lastError: { kind: "session_expired" } });
+    expect(await t.run((ctx) => ctx.db.get(accountId))).toMatchObject({ status: "expired" });
+    expect(await rows("x_webhook_accounts")).toEqual([]);
+  });
+
   test("a DM in a stored conversation moves its preview", async () => {
     const { deliver, rows } = await setup();
     const event = sample("dm.received");

@@ -28,14 +28,12 @@ export const page = query({
     const seen = cursors.flatMap((c) =>
       c.seenUntil === undefined ? [] : [{ platform: c.platform, seenUntil: c.seenUntil }],
     );
-    const now = Date.now();
     const result = await ctx.db
       .query("posts")
       .withIndex("by_userId_and_createdAt", (q) => q.eq("userId", userId))
       .order("desc")
       .filter((q) =>
         q.and(
-          q.or(q.eq(q.field("expiresAt"), undefined), q.gt(q.field("expiresAt"), now)),
           q.or(
             q.eq(q.field("relevance"), undefined),
             q.gte(q.field("relevance.score"), RELEVANCE_THRESHOLD),
@@ -47,10 +45,15 @@ export const page = query({
       )
       .paginate(paginationOpts);
     const connectorsCaughtUp = await everyConnectorCaughtUp(ctx, userId, cursors);
-    // Hidden posts are dropped from the page after it is read, so a page can
-    // come back shorter than numItems; reads stay bounded by the page size.
+    // Expired and hidden posts are dropped from the page after it is read, so
+    // a page can come back shorter than numItems; reads stay bounded by the
+    // page size. The database filter above must stay deterministic: a re-run
+    // (after a seen mark, say) with a different filter invalidates the
+    // client's cursors, so time-dependent checks like expiry belong here.
+    const now = Date.now();
     const visible = [];
     for (const post of result.page) {
+      if (post.expiresAt !== undefined && post.expiresAt <= now) continue;
       const state = await ctx.db
         .query("postStates")
         .withIndex("by_userId_and_postId", (q) => q.eq("userId", userId).eq("postId", post._id))

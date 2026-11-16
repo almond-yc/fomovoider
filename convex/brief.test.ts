@@ -440,4 +440,21 @@ describe("brief.rerunToday", () => {
     await expect(as.mutation(api.brief.rerunToday, {})).rejects.toThrow("still running");
     await expect(t.mutation(api.brief.rerunToday, {})).rejects.toThrow("Not signed in");
   });
+
+  test("a first-day rerun later in the day selects from the original window", async () => {
+    const t = setup();
+    const userId = await addUser(t);
+    await addPost(t, userId, 1, { createdAt: Date.now() - 20 * HOUR });
+    const as = t.withIdentity({ subject: `${userId}|session` });
+    const first = await as.mutation(api.brief.rerunToday, {});
+    await t.mutation(internal.brief.workflow.select, { runId: first, skipped: [] });
+    const since = (await t.run((ctx) => ctx.db.get(first)))?.since;
+    await t.run((ctx) => ctx.db.patch(first, { status: "done" }));
+
+    vi.setSystemTime(LA_DISPATCH + 12 * HOUR);
+    const rerun = await as.mutation(api.brief.rerunToday, {});
+    await t.mutation(internal.brief.workflow.select, { runId: rerun, skipped: [] });
+    expect(await t.run((ctx) => ctx.db.get(rerun))).toMatchObject({ since, counts: { selected: 1 } });
+    expect(await t.run((ctx) => ctx.db.query("brief_verdicts").collect())).toEqual([]);
+  });
 });

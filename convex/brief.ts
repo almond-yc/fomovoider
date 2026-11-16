@@ -142,7 +142,7 @@ export const rerunToday = mutation({
       for (const verdict of verdicts) await ctx.db.delete(verdict._id);
       await ctx.db.delete(run._id);
     }
-    const runId = await startBrief(ctx, userId, date, timeZone);
+    const runId = await startBrief(ctx, userId, date, timeZone, run?.since);
     if (!runId) throw new Error("Today's brief already exists");
     return runId;
   },

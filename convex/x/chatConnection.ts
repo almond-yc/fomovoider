@@ -12,8 +12,9 @@ export type XChatConnection = ReturnType<typeof connectXChat>;
 // only while the account still holds the session this action started with;
 // if the user reconnected meanwhile, the save is refused and the action fails
 // instead of overwriting the new one.
-// backfill: a one-off run (chatNode.backfill) that spends its own explicit
-// read cap, counted under its own usage keys, instead of the daily budget.
+// backfill: a separate read cap counted under its own usage keys instead of
+// the daily budget, for a one-off backfill run (chatNode.backfill) or the
+// daily real-time reserve webhook decrypts use (runId "realtime:<day>").
 export function connectXChat(ctx: ActionCtx, account: Doc<"connectedAccounts">, backfill?: { runId: string; maxReads: number }) {
   let session = account.session as Session;
   let saving: Promise<unknown> = Promise.resolve();

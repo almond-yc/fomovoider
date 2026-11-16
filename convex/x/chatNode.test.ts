@@ -331,6 +331,46 @@ describe("X Chat passcode", () => {
     expect(calls.filter((c) => c.key === "POST /2/oauth2/token")).toHaveLength(1);
   });
 
+  test("a pushed message decrypts from the real-time reserve when sync used up the day's reads", async () => {
+    vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "1");
+    stubX();
+    const { t, accountId, as } = await setup();
+    expect(await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE })).toEqual({ ok: true });
+    await settle(t);
+    const alice = { id: `x:${ALICE}`, platform: "x" as const, handle: "alice", displayName: "Alice" };
+    const deliver = async (id: string, encodedEvent: string, sortKey: string) => {
+      await t.mutation(internal.x.webhook.storeChat, {
+        accountId,
+        xUserId: ME,
+        conversationId: ONE_TO_ONE,
+        participants: [me as typeof alice, alice],
+        updatedAt: Date.parse("2026-11-15T12:00:00Z") + Number(sortKey),
+        event: { id, encodedEvent, senderId: ALICE, createdAt: "2026-11-15T12:00:00Z" },
+        sortKey,
+        keys: [],
+      });
+      await t.action(internal.x.chatNode.decryptDelivered, { accountId, conversationId: ONE_TO_ONE });
+    };
+    const daily = await t.run((ctx) => ctx.db.query("x_usage").collect());
+    expect(daily.find((u) => u.key.includes(":chatEventReads:"))?.used).toBe(1);
+
+    await deliver("e-9", "RVZFTlQtOQ==", "9");
+    const [conversation] = await t.run((ctx) => ctx.db.query("conversations").collect());
+    expect(conversation.unavailable).toBeUndefined();
+    expect(conversation.lastMessage).toMatchObject({ text: "plain:RVZFTlQtOQ==" });
+    const usage = await t.run((ctx) => ctx.db.query("x_usage").collect());
+    expect(usage.find((u) => u.key.includes(":chatEventReads:"))?.used).toBe(1);
+    expect(usage.find((u) => u.key.startsWith("backfill:realtime:"))?.used).toBe(2);
+
+    vi.stubEnv("X_DAILY_CHAT_REALTIME_READ_BUDGET", "3");
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("x_chat_public_keys").collect()) await ctx.db.delete(row._id);
+    });
+    await deliver("e-10", "RVZFTlQtMTA=", "10");
+    const [locked] = await t.run((ctx) => ctx.db.query("conversations").collect());
+    expect(locked.unavailable).toMatchObject({ reason: "locked" });
+  });
+
   test("messages.send sends X Chat messages encrypted on the server", async () => {
     const calls = stubX();
     const { t, accountId, as } = await setup();

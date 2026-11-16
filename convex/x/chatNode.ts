@@ -19,6 +19,7 @@ import { type XChatConnection, connectXChat } from "./chatConnection";
 
 const DECRYPT_PER_RUN = 10;
 const FETCH_PAGES_PER_CONVERSATION = 3;
+const REALTIME_READS_PER_DAY = 5;
 const PUBLIC_KEYS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const OWN_KEYS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const KEYS_CHANGED = "Your X Chat keys changed on X. Enter your X Chat passcode again.";
@@ -128,10 +129,19 @@ export const decryptDelivered = internalAction({
   returns: v.null(),
   handler: async (ctx, { accountId, conversationId }) => {
     const row = await ctx.runQuery(internal.x.chat.conversationRow, { accountId, conversationId });
-    if (row) await decrypt(ctx, accountId, [toInput(row)], false);
+    if (row) await decrypt(ctx, accountId, [toInput(row)], false, realtimeBudget());
     return null;
   },
 });
+
+// A message X just pushed shouldn't stay locked because background sync used
+// up the day's chatEventReads: the public-key reads its decrypt needs come
+// from a small separate daily counter (X_DAILY_CHAT_REALTIME_READ_BUDGET).
+function realtimeBudget(): { runId: string; maxReads: number } {
+  const configured = Number(process.env.X_DAILY_CHAT_REALTIME_READ_BUDGET ?? REALTIME_READS_PER_DAY);
+  const maxReads = Number.isFinite(configured) && configured >= 0 ? configured : REALTIME_READS_PER_DAY;
+  return { runId: `realtime:${new Date().toISOString().slice(0, 10)}`, maxReads };
+}
 
 // Fetches a conversation's new events, a few pages at most. False when the
 // pass didn't finish (budget, error or page cap): the conversation is then
@@ -149,8 +159,14 @@ async function fetchAll(ctx: ActionCtx, accountId: Id<"connectedAccounts">, conv
   return false;
 }
 
-async function decrypt(ctx: ActionCtx, accountId: Id<"connectedAccounts">, conversations: ConversationInput[], fetch: boolean): Promise<void> {
-  const session = await openSession(ctx, accountId);
+async function decrypt(
+  ctx: ActionCtx,
+  accountId: Id<"connectedAccounts">,
+  conversations: ConversationInput[],
+  fetch: boolean,
+  budget?: { runId: string; maxReads: number },
+): Promise<void> {
+  const session = await openSession(ctx, accountId, budget);
   if (!session) {
     await ctx.runMutation(internal.ingest.upsertConversations, { accountId, conversations: conversations.map(asLocked) });
     return;
@@ -296,12 +312,12 @@ type ServerSession = {
 // Imports the account's saved keys into a chat engine, or null when there are
 // none. If X now lists a newer key for the account than the saved one, the
 // saved keys are marked invalid and null is returned.
-async function openSession(ctx: ActionCtx, accountId: Id<"connectedAccounts">, backfill?: { runId: string; maxReads: number }): Promise<ServerSession | null> {
+async function openSession(ctx: ActionCtx, accountId: Id<"connectedAccounts">, budget?: { runId: string; maxReads: number }): Promise<ServerSession | null> {
   const row: Doc<"x_chat_keys"> | null = await ctx.runQuery(internal.x.chatKeys.loadKeys, { accountId });
   const account: Doc<"connectedAccounts"> | null = await ctx.runQuery(internal.accounts.get, { accountId });
   if (!row?.encryptedKeys || !row.signingKeyVersion || !account?.me || account.session.kind !== "oauth") return null;
   const meId = account.me.id.slice(2);
-  const own = await signingKeysFor(ctx, () => connectXChat(ctx, account, backfill), meId, [meId], OWN_KEYS_MAX_AGE_MS);
+  const own = await signingKeysFor(ctx, () => connectXChat(ctx, account, budget), meId, [meId], OWN_KEYS_MAX_AGE_MS);
   const newest = own
     .filter((k) => k.userId === meId)
     .map((k) => k.publicKeyVersion)
@@ -329,7 +345,7 @@ async function openSession(ctx: ActionCtx, accountId: Id<"connectedAccounts">, b
   const connect = async () => {
     const current: Doc<"connectedAccounts"> | null = await ctx.runQuery(internal.accounts.get, { accountId });
     if (!current?.me || current.status !== "active" || current.me.id !== account.me!.id || current.session.kind !== "oauth") throw new ConnectorFailure({ kind: "session_expired" }, "Connect X first");
-    return connectXChat(ctx, current, backfill);
+    return connectXChat(ctx, current, budget);
   };
   return { accountId, meId, me: account.me as Person, engine, connect, signingKeys: new Map(own.map((k) => [`${k.userId}:${k.publicKeyVersion}`, k])) };
 }

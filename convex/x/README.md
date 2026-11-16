@@ -54,7 +54,7 @@ X allows 20 wrong passcode tries before it deletes the user's key backup. The se
   - only it, `chatKeys.ts` and the schema touch the sealed keys;
   - no server file logs them.
 
-Chat event reads (event pages and public keys) come out of `chatEventReads` in the budget below, and X Chat sends come out of `writes`.
+Chat event reads (event pages and public keys) come out of `chatEventReads` in the budget below, and X Chat sends come out of `writes`. A message X pushes through the webhook is already stored, so decrypting it costs no event read. Any participant public keys it needs come from a part of `chatEventReads` held back for real-time decrypts (`X_DAILY_CHAT_REALTIME_READ_BUDGET`, 5 of the 30 by default). That way a real-time message isn't left locked because background sync used up its share, and the total stays within the budget.
 
 ### Consent
 
@@ -105,6 +105,7 @@ X pushes new legacy DMs, X Chat events and mentions to `${CONVEX_SITE_URL}/x/web
 | `X_CHAT_KEY_ENCRYPTION_KEY` | Required for server-side X Chat: 32 random bytes, base64 (`openssl rand -base64 32`). It seals the saved X Chat keys; losing or changing it means every user enters their passcode again. Set it per deployment and never reuse it across deployments. |
 | `X_DAILY_BUDGET_SPLIT_USD` | Daily dollars per kind, e.g. `chatEventReads=0.30,postReads=0.20`. Kinds not named keep the default split below. |
 | `X_DAILY_POST_READ_BUDGET`, `X_DAILY_DM_EVENT_READ_BUDGET`, `X_DAILY_CHAT_EVENT_READ_BUDGET`, `X_DAILY_WRITE_BUDGET` | Counts per X user per UTC day; each one overrides the split for its kind. Defaults 40, 10, 30, 3. |
+| `X_DAILY_CHAT_REALTIME_READ_BUDGET` | Reads held back out of the daily `chatEventReads` budget for decrypting X Chat messages the webhook delivers (their participants' public keys). They're counted on their own daily counter, and background sync gets the rest. Default 5, so 25 of the default 30 go to background. The total never goes over `chatEventReads`. |
 | `X_FIXTURES` | `1` answers every X call from the connector's fixtures. Local backends only; never set it on a shared deployment. |
 
 ## Spend

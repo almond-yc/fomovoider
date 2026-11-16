@@ -10,7 +10,7 @@ import { type ConversationInput, vConversationInput, vMessage } from "../lib/val
 import { ConnectorFailure, type ConnectorError, type Id as ContractId, type Message, type Person } from "../../src/connectors/types";
 import { type ChatSigningKey, UNDECRYPTABLE_TEXT, chatMessages, eventSortKey, realmTokenFrom } from "../../src/connectors/x/chat";
 import { XChatEngine, type XdkChat } from "../../src/xchat/engine/core";
-import { type XChatConnection, connectXChat } from "./chatConnection";
+import { type XChatConnection, connectXChat, realtimeReads } from "./chatConnection";
 
 // Server-side X Chat: the passcode is checked with X once, the private keys
 // it unlocks are exported (@xdevplatform/chat-xdk-server) and kept encrypted
@@ -147,10 +147,18 @@ export const decryptDelivered = internalAction({
   returns: v.null(),
   handler: async (ctx, { accountId, conversationId }) => {
     const row = await ctx.runQuery(internal.x.chat.conversationRow, { accountId, conversationId });
-    if (row) await decrypt(ctx, accountId, [toInput(row)], false);
+    if (row) await decrypt(ctx, accountId, [toInput(row)], false, realtimeBudget());
     return null;
   },
 });
+
+// A message X just pushed shouldn't stay locked because background sync used
+// its share of the day's chatEventReads: the public-key reads its decrypt
+// needs come from the reserved real-time part (chatConnection realtimeReads),
+// counted on its own daily counter.
+function realtimeBudget(): { runId: string; maxReads: number } {
+  return { runId: `realtime:${new Date().toISOString().slice(0, 10)}`, maxReads: realtimeReads() };
+}
 
 // Fetches a conversation's new events, a few pages at most. False when the
 // pass didn't finish (budget, error or page cap): the conversation is then
@@ -168,8 +176,14 @@ async function fetchAll(ctx: ActionCtx, accountId: Id<"connectedAccounts">, conv
   return false;
 }
 
-async function decrypt(ctx: ActionCtx, accountId: Id<"connectedAccounts">, conversations: ConversationInput[], fetch: boolean): Promise<void> {
-  const session = await openSession(ctx, accountId);
+async function decrypt(
+  ctx: ActionCtx,
+  accountId: Id<"connectedAccounts">,
+  conversations: ConversationInput[],
+  fetch: boolean,
+  budget?: { runId: string; maxReads: number },
+): Promise<void> {
+  const session = await openSession(ctx, accountId, budget);
   if (!session) {
     await ctx.runMutation(internal.ingest.upsertConversations, { accountId, conversations: conversations.map(asLocked) });
     return;
@@ -315,12 +329,12 @@ type ServerSession = {
 // Imports the account's saved keys into a chat engine, or null when there are
 // none. If X now lists a newer key for the account than the saved one, the
 // saved keys are marked invalid and null is returned.
-async function openSession(ctx: ActionCtx, accountId: Id<"connectedAccounts">, backfill?: { runId: string; maxReads: number }): Promise<ServerSession | null> {
+async function openSession(ctx: ActionCtx, accountId: Id<"connectedAccounts">, budget?: { runId: string; maxReads: number }): Promise<ServerSession | null> {
   const row: Doc<"x_chat_keys"> | null = await ctx.runQuery(internal.x.chatKeys.loadKeys, { accountId });
   const account: Doc<"connectedAccounts"> | null = await ctx.runQuery(internal.accounts.get, { accountId });
   if (!row?.encryptedKeys || !row.signingKeyVersion || !account?.me || account.session.kind !== "oauth") return null;
   const meId = account.me.id.slice(2);
-  const own = await signingKeysFor(ctx, () => connectXChat(ctx, account, backfill), meId, [meId], OWN_KEYS_MAX_AGE_MS);
+  const own = await signingKeysFor(ctx, () => connectXChat(ctx, account, budget), meId, [meId], OWN_KEYS_MAX_AGE_MS);
   const newest = own
     .filter((k) => k.userId === meId)
     .map((k) => k.publicKeyVersion)
@@ -348,7 +362,7 @@ async function openSession(ctx: ActionCtx, accountId: Id<"connectedAccounts">, b
   const connect = async () => {
     const current: Doc<"connectedAccounts"> | null = await ctx.runQuery(internal.accounts.get, { accountId });
     if (!current?.me || current.status !== "active" || current.me.id !== account.me!.id || current.session.kind !== "oauth") throw new ConnectorFailure({ kind: "session_expired" }, "Connect X first");
-    return connectXChat(ctx, current, backfill);
+    return connectXChat(ctx, current, budget);
   };
   return { accountId, meId, me: account.me as Person, engine, connect, signingKeys: new Map(own.map((k) => [`${k.userId}:${k.publicKeyVersion}`, k])) };
 }

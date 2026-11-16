@@ -73,6 +73,7 @@ export function connectXChat(ctx: ActionCtx, account: Doc<"connectedAccounts">, 
           return await value.apply(target, args);
         } catch (err) {
           if (err instanceof ConnectorFailure && err.error.kind === "session_expired") {
+            await saving.catch(() => undefined);
             await ctx.runMutation(internal.messages.expireSession, { accountId: account._id, sessionVersion }).catch(() => undefined);
           }
           throw err;

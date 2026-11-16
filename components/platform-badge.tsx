@@ -24,6 +24,14 @@ function XIcon({ dark, size }: { dark: boolean; size: number }) {
   );
 }
 
+function Glyph({ path, size, color }: { path: string; size: number; color: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d={path} fill={color} />
+    </Svg>
+  );
+}
+
 function InstagramIcon({ size }: { size: number }) {
   const gradientId = 'instagram-gradient-' + useId().replace(/[^a-zA-Z0-9_-]/g, '');
   return (
@@ -51,9 +59,27 @@ export function platformName(platform: PlatformId) {
   return platform;
 }
 
-export function PlatformBadge({ platform, size = DEFAULT_SIZE }: { platform: PlatformId; size?: number }) {
+// monochrome: the bare glyph in the theme's muted text color (post headers).
+export function PlatformBadge({
+  platform,
+  size = DEFAULT_SIZE,
+  monochrome = false,
+}: {
+  platform: PlatformId;
+  size?: number;
+  monochrome?: boolean;
+}) {
   const { colorScheme } = useColorScheme();
   const dark = colorScheme === 'dark';
+  const glyph = platform === 'x' ? X_PATH : platform === 'instagram' ? INSTAGRAM_PATH : undefined;
+
+  if (monochrome && glyph) {
+    return (
+      <View accessibilityLabel={platformName(platform)}>
+        <Glyph path={glyph} size={size} color={THEME[dark ? 'dark' : 'light'].mutedForeground} />
+      </View>
+    );
+  }
 
   if (platform === 'x') {
     return (

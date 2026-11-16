@@ -34,13 +34,28 @@ export function ContentItem({
       </Avatar>
       */}
       <View className="flex-1 gap-2">
-        <Text className="text-sm" numberOfLines={1}>
-          <Text className="font-sans-semibold text-sm">{author.displayName}</Text>
-          {author.displayName === author.handle ? null : (
-            <Text className="text-sm text-muted-foreground"> @{author.handle}</Text>
-          )}
-          {post.format === 'story' ? <Text className="text-sm text-muted-foreground"> · Story</Text> : null}
-        </Text>
+        <View className="flex-row items-center gap-3">
+          <Text className="flex-1 text-sm" numberOfLines={1}>
+            <Text className="font-sans-semibold text-sm">{author.displayName}</Text>
+            {author.displayName === author.handle ? null : (
+              <Text className="text-sm text-muted-foreground"> @{author.handle}</Text>
+            )}
+            {post.format === 'story' ? <Text className="text-sm text-muted-foreground"> · Story</Text> : null}
+          </Text>
+          {saved ? (
+            <Icon as={Bookmark} size={14} className="text-muted-foreground" accessibilityLabel="Saved" />
+          ) : null}
+          <Pressable
+            onPress={() => {
+              onOpen?.();
+              void openBrowserAsync(post.permalink);
+            }}
+            hitSlop={15}
+            accessibilityRole="link"
+            accessibilityLabel={`View original on ${platformName(post.platform)}`}>
+            <PlatformBadge platform={post.platform} monochrome />
+          </Pressable>
+        </View>
         {title ? <Text className="font-title text-lg leading-6">{title}</Text> : null}
         {post.text ? <Text className="text-[15px] leading-[22px]">{post.text}</Text> : null}
         {post.media.map((m) => (
@@ -54,21 +69,6 @@ export function ContentItem({
             </Text>
           </View>
         ) : null}
-        <View className="flex-row items-center gap-3">
-          <Pressable
-            onPress={() => {
-              onOpen?.();
-              void openBrowserAsync(post.permalink);
-            }}
-            hitSlop={15}
-            accessibilityRole="link"
-            accessibilityLabel={`View original on ${platformName(post.platform)}`}>
-            <PlatformBadge platform={post.platform} />
-          </Pressable>
-          {saved ? (
-            <Icon as={Bookmark} size={14} className="text-muted-foreground" accessibilityLabel="Saved" />
-          ) : null}
-        </View>
       </View>
     </View>
   );

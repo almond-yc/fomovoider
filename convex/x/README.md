@@ -10,7 +10,7 @@ The X sync for Fomovoider. It runs the connector core in `src/connectors/x/` (of
    - takes a per-account lease, so the cron and app requests never run two syncs of one account at once;
    - for a pending account, calls `account()` and `internal.accounts.verifyIdentity` first; if the identity changed, it stops and the shared purge runs;
    - syncs every legacy DM, paging newest to older across runs, so history in Convex outlives X's 30-day window; an older page never overwrites a newer conversation;
-   - reads the feed (mentions plus home, no replies or reposts) and upserts the normalized posts;
+   - reads the feed (mentions plus home, no replies or reposts) and upserts the normalized posts. A pass that `feedLimit` or the daily budget cuts short keeps its place in the cursor (X's pagination token and the pass's newest post), and the next run continues it, so no posts are skipped. `feedCursors.caughtUp` is true only when both streams have read everything new since the last finished pass, and never on a run that finished a resumed pass (that pass read toward older posts, so anything newer is left for the next run's fresh pass);
    - refreshes access tokens server-side and saves every rotated session with `accounts.saveSession`, unless the user reconnected meanwhile;
    - records success or the `ConnectorError` with `accounts.recordSync`. Fomovoider's own used-up daily budget is not an error: the step waits for the next UTC day. X refusing because the app's credits are depleted (HTTP 402) is recorded as `budget_exhausted` without `resetsAt`.
 

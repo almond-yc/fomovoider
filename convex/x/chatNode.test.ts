@@ -333,6 +333,28 @@ describe("X Chat passcode", () => {
     expect(calls.filter((c) => c.key === "POST /2/oauth2/token")).toHaveLength(1);
   });
 
+  test.each([
+    [400, "expired"],
+    [401, "expired"],
+    [503, "active"],
+  ])("opening a locked X Chat row when X refuses the token refresh with HTTP %i leaves the account %s", async (status, expected) => {
+    stubX({ "POST /2/oauth2/token": () => json({ error: "invalid_request" }, status) });
+    const { t, accountId, as } = await setup();
+    await t.action(internal.x.chat.syncAccount, { accountId });
+    await settle(t);
+    await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
+    await t.run(async (ctx) => {
+      const account = await ctx.db.get(accountId);
+      await ctx.db.patch(accountId, { session: { ...account!.session, expiresAt: "2000-01-01T00:00:00.000Z" } as NonNullable<typeof account>["session"] });
+    });
+    await as.action(api.x.chatNode.decryptConversation, { conversationId: ONE_TO_ONE });
+    const account = await t.run((ctx) => ctx.db.get(accountId));
+    expect(account?.status).toBe(expected);
+    const conversation = await as.query(api.conversations.get, { conversationId: ONE_TO_ONE });
+    if (expected === "expired") expect(conversation?.sendBlocked).toEqual({ kind: "session_expired" });
+    else expect(conversation?.sendBlocked).toBeUndefined();
+  });
+
   test("keys saved on one app account serve every app account of the same X user", async () => {
     stubX();
     const { t, accountId, as } = await setup();

@@ -1,7 +1,7 @@
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
-import type { Session } from "../../src/connectors/types";
+import { ConnectorFailure, type Session } from "../../src/connectors/types";
 import { xConfigFromEnv } from "../../src/connectors/x/config";
 import { XChatClient } from "../../src/connectors/x/chat";
 import { convexUsageStore } from "./sync";
@@ -33,7 +33,7 @@ export function connectXChat(ctx: ActionCtx, account: Doc<"connectedAccounts">, 
   let sessionVersion = account.sessionVersion ?? 0;
   const usage = convexUsageStore(ctx);
   const runKey = (key: string) => `backfill:${backfill?.runId}:${key.replace(/:\d{4}-\d{2}-\d{2}$/, "")}`;
-  const client = new XChatClient({
+  const raw = new XChatClient({
     config: backfill
       ? xConfigFromEnv(new Proxy(process.env, { get: (env, name) => (name === "X_DAILY_CHAT_EVENT_READ_BUDGET" ? String(backfill.maxReads) : env[name as string]) }))
       : (() => {
@@ -58,6 +58,27 @@ export function connectXChat(ctx: ActionCtx, account: Doc<"connectedAccounts">, 
         if (!result.saved) throw new Error("X was reconnected while this X Chat request ran; try again");
         sessionVersion = result.sessionVersion;
       });
+    },
+  });
+  // X rejected the session (a 401, or a refresh refused with 400/401): mark
+  // the account expired at once so the app shows its reconnect banner,
+  // unless the user reconnected meanwhile (messages.expireSession checks the
+  // session version).
+  const client = new Proxy(raw, {
+    get: (target, name, receiver) => {
+      const value = Reflect.get(target, name, receiver);
+      if (typeof value !== "function") return value;
+      return async (...args: unknown[]) => {
+        try {
+          return await value.apply(target, args);
+        } catch (err) {
+          if (err instanceof ConnectorFailure && err.error.kind === "session_expired") {
+            await saving.catch(() => undefined);
+            await ctx.runMutation(internal.messages.expireSession, { accountId: account._id, sessionVersion }).catch(() => undefined);
+          }
+          throw err;
+        }
+      };
     },
   });
   return { client, session: () => session, saving: () => saving };

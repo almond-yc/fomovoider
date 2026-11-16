@@ -91,6 +91,7 @@ export default function XChatPasscodeScreen() {
       <ScrollView
         contentContainerClassName="gap-5 px-6 pb-10 pt-6"
         contentInsetAdjustmentBehavior="automatic"
+        automaticallyAdjustKeyboardInsets
         keyboardShouldPersistTaps="handled">
         <Text className="font-sans-semibold text-xl">{consented ? 'Enter your X Chat passcode' : CONSENT_TITLE}</Text>
         {consented ? (
@@ -134,9 +135,11 @@ export default function XChatPasscodeScreen() {
           className="h-12"
         />
         {error ? (
-          <Text accessibilityLiveRegion="polite" className="text-sm leading-5 text-destructive">
-            {error}
-          </Text>
+          <View className="rounded-md bg-muted px-3 py-2.5">
+            <Text accessibilityLiveRegion="polite" className="text-sm leading-5">
+              {error}
+            </Text>
+          </View>
         ) : null}
         <Button size="lg" disabled={!canSubmit} onPress={() => void submit()}>
           {busy ? <ActivityIndicator /> : <Text>Continue</Text>}

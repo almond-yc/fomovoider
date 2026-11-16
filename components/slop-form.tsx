@@ -9,7 +9,7 @@ import { useMutation } from 'convex/react';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { Mic, Square } from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
@@ -24,7 +24,9 @@ import {
 // Speech recognition is on-device; hide the mic when the platform has none.
 function canDictate() {
   try {
-    return ExpoSpeechRecognitionModule.isRecognitionAvailable();
+    return (
+      ExpoSpeechRecognitionModule.isRecognitionAvailable() && ExpoSpeechRecognitionModule.supportsOnDeviceRecognition()
+    );
   } catch {
     return false;
   }
@@ -53,11 +55,16 @@ export function SlopForm({
   const [micDenied, setMicDenied] = useState(false);
   const [micAvailable] = useState(canDictate);
   const dictationBase = useRef('');
+  const dictating = useRef(false);
+  const mounted = useRef(true);
   const canSubmit = value.trim() !== '' && !saving;
 
   useSpeechRecognitionEvent('result', (event) => {
+    if (!dictating.current) return;
     const spoken = event.results[0]?.transcript ?? '';
-    setValue((dictationBase.current + spoken).slice(0, MAX_SLOP_DESCRIPTION_LENGTH));
+    const next = (dictationBase.current + spoken).slice(0, MAX_SLOP_DESCRIPTION_LENGTH);
+    setValue(next);
+    if (event.isFinal) dictationBase.current = `${next.trimEnd()} `;
   });
   useSpeechRecognitionEvent('volumechange', (event) => setLevel(Math.min(1, Math.max(0, event.value / 10))));
   useSpeechRecognitionEvent('end', () => {
@@ -70,6 +77,23 @@ export function SlopForm({
     if (event.error === 'not-allowed') setMicDenied(true);
   });
 
+  useEffect(
+    () => () => {
+      mounted.current = false;
+      dictating.current = false;
+      ExpoSpeechRecognitionModule.abort();
+    },
+    []
+  );
+
+  function onChangeText(text: string) {
+    if (listening) {
+      dictating.current = false;
+      ExpoSpeechRecognitionModule.stop();
+    }
+    setValue(text);
+  }
+
   async function toggleListening() {
     if (listening) {
       ExpoSpeechRecognitionModule.stop();
@@ -80,11 +104,14 @@ export function SlopForm({
       setMicDenied(true);
       return;
     }
+    if (!mounted.current) return;
     Keyboard.dismiss();
     dictationBase.current = value.trim() === '' ? '' : `${value.trimEnd()} `;
+    dictating.current = true;
     setListening(true);
     ExpoSpeechRecognitionModule.start({
       lang: 'en-US',
+      requiresOnDeviceRecognition: true,
       interimResults: true,
       continuous: true,
       volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
@@ -119,7 +146,7 @@ export function SlopForm({
         <TextInput
           accessibilityLabel="What's slop for you?"
           value={value}
-          onChangeText={setValue}
+          onChangeText={onChangeText}
           multiline
           autoFocus
           maxLength={MAX_SLOP_DESCRIPTION_LENGTH}

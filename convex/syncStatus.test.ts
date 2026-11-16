@@ -48,6 +48,25 @@ describe("syncStatus.status", () => {
     expect(await as.query(api.syncStatus.status, {})).toEqual({ feed: [], chats: [] });
   });
 
+  test("a row from before the pass flags counts as synced unless a pass is cut short", async () => {
+    const { t, userId, as, connect, verify } = await setup();
+    const accountId = await connect("x");
+    await verify(accountId, "x");
+    await t.mutation(internal.ingest.upsertPosts, { accountId, posts: [], page: { cursor: "c", caughtUp: true } });
+    const stateId = await t.run((ctx) =>
+      ctx.db.insert("x_sync_state", { accountId, xUserId: "x:me", dmSinceId: "x:1", chatSince: "2026-11-01T00:00:00Z" }),
+    );
+    expect(await as.query(api.syncStatus.status, {})).toEqual({ feed: [], chats: [] });
+
+    // A later DM pass finishing doesn't make it wait for the X Chat listing.
+    await t.mutation(internal.x.state.saveState, { accountId, xUserId: "x:me", patch: {}, endDmPass: true });
+    expect(await as.query(api.syncStatus.status, {})).toEqual({ feed: [], chats: [] });
+
+    await t.run((ctx) => ctx.db.patch(stateId, { chatCursor: "next" }));
+    expect(await as.query(api.syncStatus.status, {})).toEqual({ feed: [], chats: ["x"] });
+    void userId;
+  });
+
   test("an unfinished X Chat history fetch keeps chats syncing", async () => {
     const { t, userId, as, connect, verify } = await setup();
     const accountId = await connect("x");

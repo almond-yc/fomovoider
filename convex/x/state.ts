@@ -57,7 +57,7 @@ export const saveState = internalMutation({
       return null;
     }
     if (existing) await ctx.db.delete(existing._id);
-    await ctx.db.insert("x_sync_state", { accountId, xUserId, ...patch });
+    await ctx.db.insert("x_sync_state", { accountId, xUserId, dmPassDone: false, chatPassDone: false, ...patch });
     return null;
   },
 });

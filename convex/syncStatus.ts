@@ -46,15 +46,17 @@ async function feedCaughtUp(ctx: QueryCtx, userId: Id<"users">, platform: string
 async function chatsSyncing(ctx: QueryCtx, account: Doc<"connectedAccounts">) {
   if (account.platform === "x") {
     // The legacy DM pass and the X Chat listing run separately, so each must
-    // have finished once for this identity. A dmCursor or chatCursor is a
-    // later pass cut short; a conversation cursor is an X Chat history fetch
-    // that later runs continue.
+    // have finished once for this identity: dmPassDone and chatPassDone start
+    // at false on a new row. A row from before they existed has them unset;
+    // its first passes already ran, so only its cursors count. A dmCursor or
+    // chatCursor is a pass cut short; a conversation cursor is an X Chat
+    // history fetch that later runs continue.
     const state = await ctx.db
       .query("x_sync_state")
       .withIndex("by_accountId", (q) => q.eq("accountId", account._id))
       .unique();
     if (!state || state.xUserId !== account.me?.id) return true;
-    if (!state.dmPassDone || !state.chatPassDone) return true;
+    if (state.dmPassDone === false || state.chatPassDone === false) return true;
     if (state.dmCursor !== undefined || state.chatCursor !== undefined) return true;
     const unfinished = await ctx.db
       .query("x_chat_cursors")

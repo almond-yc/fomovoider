@@ -134,7 +134,7 @@ export const decryptConversation = action({
     const row = await ctx.runQuery(internal.x.chat.conversationRow, { accountId: account._id, conversationId });
     if (!row || row.platform !== "x") return { readable: false };
     if (!row.unavailable) return { readable: true };
-    await decrypt(ctx, account._id, [toInput(row)], true);
+    await decrypt(ctx, account._id, [toInput(row)], true, realtimeBudget());
     const after = await ctx.runQuery(internal.x.chat.conversationRow, { accountId: account._id, conversationId });
     return { readable: Boolean(after && !after.unavailable) };
   },
@@ -161,9 +161,10 @@ function realtimeBudget(): { runId: string; maxReads: number } {
 }
 
 // Fetches a conversation's new events, a few pages at most. False when the
-// pass didn't finish (budget, error or page cap): the conversation is then
-// left locked, and pendingConversations hands it to a later run, which
-// resumes from the saved cursor.
+// pass didn't finish (budget, error or page cap). What is already stored is
+// still decrypted, so a webhook-delivered message shows even when the day's
+// reads are gone; an unfinished pass keeps its cursor, and
+// pendingConversations hands it to a later run, which resumes from there.
 async function fetchAll(ctx: ActionCtx, accountId: Id<"connectedAccounts">, conversationId: string): Promise<boolean> {
   try {
     for (let page = 0; page < FETCH_PAGES_PER_CONVERSATION; page++) {
@@ -172,6 +173,7 @@ async function fetchAll(ctx: ActionCtx, accountId: Id<"connectedAccounts">, conv
     }
   } catch (err) {
     if (!(err instanceof Error && /budget/i.test(err.message))) console.error("X Chat fetch failed:", errorText(err));
+    await ctx.runMutation(internal.x.chat.markFetchRetry, { accountId, conversationId });
   }
   return false;
 }
@@ -195,10 +197,7 @@ async function decrypt(
         locked.push(asLocked(conversation));
         continue;
       }
-      if (fetch && !(await fetchAll(ctx, accountId, conversation.id))) {
-        locked.push(asLocked(conversation));
-        continue;
-      }
+      if (fetch) await fetchAll(ctx, accountId, conversation.id);
       if (!(await decryptOne(ctx, session, conversation))) locked.push(asLocked(conversation));
     }
   } finally {

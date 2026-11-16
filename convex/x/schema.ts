@@ -75,6 +75,7 @@ export const xTables = {
     sinceId: v.optional(v.string()),
     cursor: v.optional(v.string()),
     passNewestId: v.optional(v.string()),
+    retry: v.optional(v.boolean()),
   }).index("by_userId_and_conversationId", ["userId", "conversationId"]),
 
   // Per connected X account: the X Chat private keys, exported once from the

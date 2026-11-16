@@ -198,7 +198,7 @@ describe("X Chat passcode", () => {
     expect(calls.slice(before).filter((c) => c.key.includes("/events"))).toEqual([]);
   });
 
-  test("an event pass cut short leaves the chat locked and a later run finishes it", async () => {
+  test("an event pass cut short shows what's stored and a later run finishes it", async () => {
     vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "100");
     let more = true;
     stubX({
@@ -210,7 +210,7 @@ describe("X Chat passcode", () => {
     await t.action(internal.x.chat.syncAccount, { accountId });
     await settle(t);
     const [cut] = await t.run((ctx) => ctx.db.query("conversations").collect());
-    expect(cut.unavailable).toMatchObject({ reason: "locked" });
+    expect(cut.unavailable).toBeUndefined();
     const [cursor] = await t.run((ctx) => ctx.db.query("x_chat_cursors").collect());
     expect(cursor.cursor).toBe("next");
 
@@ -406,6 +406,40 @@ describe("X Chat passcode", () => {
     await other.mutation(api.x.chatKeys.removePasscode, {});
     expect(await as.query(api.x.chatKeys.passcodeStatus, {})).toEqual({ status: "none" });
     expect(await t.run((ctx) => ctx.db.query("x_chat_keys").collect())).toEqual([]);
+  });
+
+  test("opening a webhook-delivered chat decrypts its stored events even when the day's reads are gone", async () => {
+    vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "6");
+    stubX();
+    const { t, accountId, as } = await setup();
+    await as.action(api.x.chatNode.setPasscode, { passcode: PASSCODE });
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("x_usage").collect()) await ctx.db.patch(row._id, { used: 6 });
+    });
+    const alice = { id: `x:${ALICE}`, platform: "x" as const, handle: "alice", displayName: "Alice" };
+    await t.mutation(internal.x.webhook.storeChat, {
+      accountId,
+      xUserId: ME,
+      conversationId: ONE_TO_ONE,
+      participants: [me as typeof alice, alice],
+      updatedAt: Date.parse("2026-11-16T01:00:00Z"),
+      event: { id: "e-11", encodedEvent: "RVZFTlQtMTE=", senderId: ALICE, createdAt: "2026-11-16T01:00:00Z" },
+      sortKey: "11",
+      keys: [],
+    });
+    expect(await as.action(api.x.chatNode.decryptConversation, { conversationId: ONE_TO_ONE })).toEqual({ readable: true });
+    const [row] = await t.run((ctx) => ctx.db.query("conversations").collect());
+    expect(row.lastMessage).toMatchObject({ text: "plain:RVZFTlQtMTE=" });
+    const usage = await t.run((ctx) => ctx.db.query("x_usage").collect());
+    expect(usage.find((u) => u.key.includes(":chatEventReads:"))?.used).toBe(6);
+    const [position] = await t.run((ctx) => ctx.db.query("x_chat_cursors").collect());
+    expect(position.retry).toBe(true);
+
+    vi.stubEnv("X_DAILY_CHAT_EVENT_READ_BUDGET", "100");
+    await t.action(internal.x.chatNode.decryptConversations, { accountId, conversations: [] });
+    const [after] = await t.run((ctx) => ctx.db.query("x_chat_cursors").collect());
+    expect(after.retry).toBeUndefined();
+    expect(await t.run((ctx) => ctx.db.query("messages").collect())).toEqual(expect.arrayContaining([expect.objectContaining({ text: "plain:RVZFTlQtMw==" })]));
   });
 
   test("opening a locked X Chat row decrypts it on demand once keys are saved", async () => {

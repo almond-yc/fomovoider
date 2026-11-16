@@ -6,6 +6,7 @@ import { Pressable, ScrollView, View, type ScrollViewInstance } from 'react-nati
 const DAYS_SHOWN = 14;
 const ITEM_WIDTH = 64;
 const GAP = 8;
+const PADDING = 20;
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // today and the days before it, oldest first, as YYYY-MM-DD. Date math on
@@ -21,8 +22,9 @@ export function dayLabel(date: string) {
   return { weekday: WEEKDAYS[d.getUTCDay()], monthDay: `${d.getUTCMonth() + 1}/${d.getUTCDate()}` };
 }
 
-// A row of day rectangles with today in the middle of the screen and earlier
-// days to its left. Days without a brief can't be picked.
+// A row of day rectangles ending with today at the right edge, earlier days
+// to its left; it opens scrolled all the way right. Days without a brief
+// can't be picked.
 export function DateStrip({
   today,
   selected,
@@ -34,17 +36,14 @@ export function DateStrip({
   available: ReadonlySet<string>;
   onSelect: (date: string) => void;
 }) {
-  const days = stripDays(today);
   const scroll = useRef<ScrollViewInstance>(null);
   const [width, setWidth] = useState(0);
-  // Padding on both ends lets the first and last day scroll to the center.
-  const inset = Math.max(0, (width - ITEM_WIDTH) / 2);
+  // Enough days to fill the width, so nothing is left blank on wide screens.
+  const days = stripDays(today, Math.max(DAYS_SHOWN, Math.ceil((width - PADDING) / (ITEM_WIDTH + GAP))));
 
   useEffect(() => {
-    if (width === 0) return;
-    const index = Math.max(0, days.indexOf(selected));
-    scroll.current?.scrollTo({ x: index * (ITEM_WIDTH + GAP), animated: false });
-  }, [width, today]);
+    scroll.current?.scrollToEnd({ animated: false });
+  }, [today]);
 
   return (
     <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)} className="border-b border-border py-3">
@@ -52,9 +51,8 @@ export function DateStrip({
         ref={scroll}
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: inset, gap: GAP }}
-        snapToInterval={ITEM_WIDTH + GAP}
-        decelerationRate="fast">
+        onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })}
+        contentContainerStyle={{ paddingHorizontal: PADDING, gap: GAP, flexGrow: 1, justifyContent: 'flex-end' }}>
         {days.map((date) => {
           const { weekday, monthDay } = dayLabel(date);
           const enabled = date === today || available.has(date);

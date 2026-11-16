@@ -1,5 +1,5 @@
 import { EmptyState } from '@/components/empty-state';
-import { ContentItem, ContentItemSkeleton, DashedDivider, type FeedPagePost } from '@/components/feed';
+import { ContentItem, ContentItemSkeleton, DashedDivider, type FeedPagePost, useSeenBatches } from '@/components/feed';
 import { platformName } from '@/components/platform-badge';
 import { Text } from '@/components/ui/text';
 import { api } from '@/convex/_generated/api';
@@ -9,13 +9,11 @@ import type { FunctionReturnType } from 'convex/server';
 import { useConvex, useConvexAuth, useMutation, usePaginatedQuery, useQuery } from 'convex/react';
 import { CircleCheck, Link2 } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import { Alert, FlatList, Pressable, RefreshControl, View, type ListViewToken } from 'react-native';
+import { Alert, FlatList, Pressable, RefreshControl, View } from 'react-native';
 
 type Account = FunctionReturnType<typeof api.accounts.list>[number];
 
 const PAGE_SIZE = 20;
-const SEEN_FLUSH_MS = 1500;
-const SEEN_BATCH = 100;
 
 
 export default function FeedScreen() {
@@ -74,7 +72,7 @@ function FeedSession({
   const markOpened = useMutation(api.postStates.markOpened);
   const setHidden = useMutation(api.postStates.setHidden);
   const setSaved = useMutation(api.postStates.setSaved);
-  const onViewableItemsChanged = useSeenBatches();
+  const onViewableItemsChanged = useSeenBatches((item) => (item as FeedPagePost)._id);
   // markCaughtUp moves the feed's end past every post shown, so feed.page
   // empties right after; the session keeps showing what it reached.
   const [reached, setReached] = useState<FeedPagePost[] | null>(null);
@@ -182,45 +180,6 @@ function FeedSession({
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     />
   );
-}
-
-// Marks posts seen as they come on screen: collects their ids and sends them
-// in one markSeenMany call every SEEN_FLUSH_MS, each post at most once.
-function useSeenBatches() {
-  const markSeenMany = useMutation(api.postStates.markSeenMany);
-  const sent = useRef(new Set<Id<'posts'>>());
-  const pending = useRef(new Set<Id<'posts'>>());
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const flush = useRef(() => {});
-  flush.current = () => {
-    timer.current = undefined;
-    const ids = [...pending.current];
-    pending.current.clear();
-    for (let i = 0; i < ids.length; i += SEEN_BATCH) {
-      void markSeenMany({ postIds: ids.slice(i, i + SEEN_BATCH) });
-    }
-  };
-
-  useEffect(
-    () => () => {
-      clearTimeout(timer.current);
-      flush.current();
-    },
-    [],
-  );
-
-  // FlatList requires the same callback for its whole life.
-  return useRef(({ viewableItems }: { viewableItems: ListViewToken[] }) => {
-    for (const { item, isViewable } of viewableItems) {
-      const { _id } = item as FeedPagePost;
-      if (!isViewable || sent.current.has(_id)) continue;
-      sent.current.add(_id);
-      pending.current.add(_id);
-    }
-    if (pending.current.size > 0 && timer.current === undefined) {
-      timer.current = setTimeout(() => flush.current(), SEEN_FLUSH_MS);
-    }
-  }).current;
 }
 
 function AccountNotices({ accounts }: { accounts: Account[] }) {
